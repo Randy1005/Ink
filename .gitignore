@@ -1,0 +1,46 @@
+# cmake / makefiles
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# build folder
+[Bb]uild/
+[Bb]uild/*
+[Bb]uild*
+[Bb]uild*/*
+[Bb]uild-debug/
+[Bb]uild-debug/*
+[Bb]uild-debug*
+
+# benchmarks
+[Bb]enchmarks/
+[Bb]enchmarks/*
+
+
+# swp files
+*.swp
+
+# ctags
+*tags
+
+# regression outputs
+[Ii]nttests/*
+[Ii]nttests/
+*.output
+*.mem
+*.out
+inttests/regression*
+inttests/*.csv
+inttests/*.xlsx
+
+# valgrind debug outputs
+vgcore*
+build/vgcore*
