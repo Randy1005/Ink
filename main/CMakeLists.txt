@@ -1,8 +1,8 @@
-add_executable(InkTimer main.cpp)
+add_executable(Ink main.cpp)
 
 # options/flags pass to the compiler
-target_compile_features(inktimer INTERFACE cxx_std_20)
-target_compile_options(inktimer INTERFACE -Wall -Wextra -Wfatal-errors)
+target_compile_features(ink INTERFACE cxx_std_20)
+target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
 
 
 # include and static libary linking
@@ -10,12 +10,12 @@ target_compile_options(inktimer INTERFACE -Wall -Wextra -Wfatal-errors)
 #                           LINK_PUBLIC ${PROJECT_SOURCE_DIR}/libmetis/libGKlib.a
 #                           LINK_PUBLIC ${PROJECT_SOURCE_DIR}/libbliss/libbliss_static.a)
 
-target_link_libraries(InkTimer
-  LINK_PUBLIC inktimer 
+target_link_libraries(Ink
+  LINK_PUBLIC ink 
 )
 
-target_include_directories(InkTimer PRIVATE ${PROJECT_SOURCE_DIR})
+target_include_directories(Ink PRIVATE ${PROJECT_SOURCE_DIR})
 
 # create a variable for this executable
-set(INKTIMER_EXEC ${PROJECT_SOURCE_DIR}/build/main/InkTimer)
+set(INKTIMER_EXEC ${PROJECT_SOURCE_DIR}/build/main/Ink)
 

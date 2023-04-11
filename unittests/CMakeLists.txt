@@ -1,19 +1,20 @@
 enable_testing()
 
-include(${INKTIMER_3RD_PARTY_DIR}/doctest/doctest.cmake)
+include(${INK_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
-list(APPEND INKTIMER_UNITTESTS
+list(APPEND INK_UNITTESTS
 
 )
 
-foreach(unittest IN LISTS INKTIMER_UNITTESTS)
+foreach(unittest IN LISTS INK_UNITTESTS)
   add_executable(${unittest} ${unittest}.cpp)
 	add_test(NAME ${unittest} COMMAND ${unittest})	
 	set_property(TEST ${unittest} PROPERTY LABELS "unit")
   target_include_directories(${unittest} 
-    PRIVATE ${PROJECT_SOURCE_DIR} ${INKTIMER_3RD_PARTY_DIR}/doctest)
+    PRIVATE ${PROJECT_SOURCE_DIR} ${INK_3RD_PARTY_DIR}/doctest)
+  
   target_link_libraries(${unittest} 
-    LINK_PUBLIC qsat stdc++fs)
+    LINK_PUBLIC ink stdc++fs)
   
   doctest_discover_tests(${unittest})
 endforeach()

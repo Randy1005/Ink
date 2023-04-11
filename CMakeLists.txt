@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.26.0)
 set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 
 
-project(InkTimer VERSION 1.0 LANGUAGES C CXX CUDA)
+project(Ink VERSION 1.0 LANGUAGES C CXX CUDA)
 
 
 # set everything up for c++20 features
@@ -47,25 +47,25 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 
 
 # Library-specific variable
-set(INKTIMER_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
-set(INKTIMER_EXAMPLE_DIR ${PROJECT_SOURCE_DIR}/examples)
+set(INK_3RD_PARTY_DIR ${PROJECT_SOURCE_DIR}/3rd-party)
+set(INK_EXAMPLE_DIR ${PROJECT_SOURCE_DIR}/examples)
 
 # Benchmark directory variable
-set(INKTIMER_BENCHMARK_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
+set(INK_BENCHMARK_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
 
 
 
 # Binary folder
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 message("PROJECT_NAME: " ${PROJECT_NAME})
-message("INKTIMER_SOURCE_DIR: " ${PROJECT_SOURCE_DIR})
+message("INK_SOURCE_DIR: " ${PROJECT_SOURCE_DIR})
 message("CMAKE_BUILD_TYPE: " ${CMAKE_BUILD_TYPE})
-message(STATUS "INKTIMER_BENCHMARK_DIR: " ${INKTIMER_BENCHMARK_DIR})
+message(STATUS "INK_BENCHMARK_DIR: " ${INK_BENCHMARK_DIR})
 message(STATUS "BIN_DIR: " ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 
 
-option(INKTIMER_BUILD_CUDA "Enables builds of cuda code" ON)
+option(INK_BUILD_CUDA "Enables builds of cuda code" ON)
 
 
 
@@ -84,7 +84,7 @@ set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 # find nvcc
 # https://cliutils.gitlab.io/modern-cmake/chapters/packages/CUDA.html
 # -----------------------------------------------------------------------------
-if(INKTIMER_BUILD_CUDA)
+if(INK_BUILD_CUDA)
   message(STATUS "Configuring CUDA ...")
   check_language(CUDA)
   if(NOT CMAKE_CUDA_COMPILER)
@@ -107,10 +107,10 @@ endif()
 # -----------------------------------------------------------------------------
 
 # add sub directories
-add_subdirectory(inktimer)
-add_subdirectory(${INKTIMER_3RD_PARTY_DIR}/PEGTL)
-add_subdirectory(${INKTIMER_3RD_PARTY_DIR}/OpenTimer)
-add_subdirectory(${INKTIMER_EXAMPLE_DIR})
+add_subdirectory(ink)
+add_subdirectory(${INK_3RD_PARTY_DIR}/PEGTL)
+add_subdirectory(${INK_3RD_PARTY_DIR}/OpenTimer)
+add_subdirectory(${INK_EXAMPLE_DIR})
 add_subdirectory(main)
 add_subdirectory(unittests)
 add_subdirectory(inttests)

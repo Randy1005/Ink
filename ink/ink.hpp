@@ -1,6 +1,6 @@
 #include <ot/timer/timer.hpp>
 
-namespace inkt {
+namespace ink {
 
 
 

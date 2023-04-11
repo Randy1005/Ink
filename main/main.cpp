@@ -1,4 +1,4 @@
-#include <inktimer/inktimer.hpp>
+#include <ink/ink.hpp>
 
 int main(int argc, char* argv[]) {
 	
