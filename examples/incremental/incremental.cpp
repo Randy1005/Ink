@@ -140,10 +140,6 @@ int main(int argc, char *argv[]) {
   // dump the timing graph to dot format for debugging
   timer.dump_graph(std::cout);
 
-  // dump graph as input for other tools
-  std::cout << "Graph Input:\n";
-  timer.dump_graph_input(std::cout, "src", "dst");
-
   return 0;
 }
 

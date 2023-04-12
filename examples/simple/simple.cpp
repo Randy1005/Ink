@@ -21,18 +21,19 @@ int main(int argc, char *argv[]) {
   // get the top-5 worst critical paths
   auto paths = timer.report_timing(5);
 
-//  for(size_t i=0; i<paths.size(); ++i) {
-//    std::cout << "----- Critical Path " << i << " -----\n";
-//    std::cout << paths[i] << '\n';
-//  }
-//
-//  // dump the timing graph to dot format for debugging
-//  timer.dump_graph(std::cout);
-//  timer.dump_at(std::cout);
-//  timer.dump_power(std::cout);
+  for(size_t i=0; i<paths.size(); ++i) {
+    std::cout << "----- Critical Path " << i << " -----\n";
+    std::cout << paths[i] << '\n';
+  }
 
+  // dump the timing graph to dot format for debugging
+  timer.dump_graph(std::cout);
+  timer.dump_at(std::cout);
+  timer.dump_power(std::cout);
 
-  timer.dump_graph_input(std::cout, "src", "dst");
+  std::ofstream ofs("simple.graph");
+
+  timer.dump_graph_input(ofs);
 
 
   return 0;
