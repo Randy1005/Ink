@@ -20,15 +20,36 @@ void Ink::insert_vertex(const std::string& name) {
 }
 
 void Ink::remove_vertex(const std::string& name) {
-	// remove the vertex with key "name"
-	// from unordered map
 	auto found = _verts.find(name);
 	if (found != _verts.end()) {
+		// remove all fanout, fanin edges of this vertex
+		
+		auto& v = (*found).second;
+		for (const auto& in : v.fanins) {
+			// update the fanout edges for all from vertices
+			_verts[in].fanouts_swap_and_pop(v.name);
+
+			// remove the fanin edges
+			remove_edge(in, v.name);
+		}	
+		
+		for (const auto& out : v.fanouts) {
+			// update the fanin edges for all to vertices
+			_verts[out].fanins_swap_and_pop(v.name);
+
+			// update the edges
+			remove_edge(v.name, out);
+		
+		}
+
+
 		_verts.erase(found);
 	}
 	else {
 		std::cout << "Attempt to remove an non-existent vertex\n";
 	}
+
+	
 }
 
 void Ink::insert_edge(
@@ -48,31 +69,51 @@ void Ink::insert_edge(
 	// create vertices if any of the input vertices doesn't exist
 	insert_vertex(from);
 	insert_vertex(to);
+	
 
-
+	// populate fanins, fanouts 
+	auto& v_from = _verts[from];
+	auto& v_to = _verts[to];
+	
+	v_from.fanouts.emplace_back(to);
+	v_to.fanins.emplace_back(from);
+	
 	std::vector<std::optional<float>> weights = {
 		w0, w1, w2, w3, w4, w5, w6, w7
 	};
 
-	_edges.emplace_back(_verts[from], _verts[to], id, std::move(weights));
+	_edges.emplace_back(v_from, v_to, id, std::move(weights));
+
+	
+}
+
+void Ink::remove_edge(const std::string& from, const std::string& to) {
+	for (size_t i = 0; i < _edges.size(); i++) {
+		if (_edges[i].from.get().name == from && _edges[i].to.get().name == to) {
+			_edges_swap_and_pop(i);	
+		}
+	}
+
 }
 
 void Ink::dump(std::ostream& os) const {
 	os << num_verts() << " Vertices:\n";
 	os << "------------------\n";
 	for (const auto& v : _verts) {
-		os << v.first << ": name="
-							<< v.second.name << ", id="
-							<< v.second.id << '\n';
+		os << "name=" << v.second.name 
+			 << ", id=" << v.second.id 
+			 << ", num fanins=" << v.second.fanins.size()
+			 << ", num fanouts=" << v.second.fanouts.size() << '\n';
 	}
 
 	os << "------------------\n";
 	os << num_edges() << " Edges:\n";
 	os << "------------------\n";
 	for (const auto& e : _edges) {
-		os << "name: " << e.from.name 
-			 << "->" << e.to.name
-			 << " ... weights = ";
+		os << "id=" << e.id
+			 << " ... name= " << e.from.get().name 
+			 << "->" << e.to.get().name
+			 << " ... weights= ";
 		for (const auto& w : e.weights) {
 			if (w.has_value()) {
 				os << w.value() << ' ';

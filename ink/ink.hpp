@@ -2,6 +2,8 @@
 #include <ot/timer/timer.hpp>
 #include <iostream>
 #include <string>
+#include <algorithm>
+
 
 namespace ink {
 
@@ -9,23 +11,9 @@ struct Vert;
 struct Edge;
 class Ink;
 
-struct Vert {
-	Vert() = default;
-	Vert(const std::string& name, const size_t id) :
-		name{name},
-		id{id}
-	{
-	}
-
-	Vert(Vert&&) = default;
-	
-	std::string name;
-	size_t id;
-	std::vector<Edge*> fanins;
-	std::vector<Edge*> fanouts;
-};
 
 struct Edge {
+	Edge() = default;
 	Edge(Vert& v_from, Vert& v_to, 
 			 const size_t id,
 			 const std::vector<std::optional<float>>& ws) :
@@ -36,16 +24,54 @@ struct Edge {
 	{
 	}
 
-	Edge(Edge&&) = default;
+	Edge(const Edge&) = default;
 
-	Vert& from;
-	Vert& to;
+	std::reference_wrapper<Vert> from;
+	std::reference_wrapper<Vert> to;
 	size_t id;
 
 	// vector of optional weights
 	std::vector<std::optional<float>> weights;	
 };
 
+struct Vert {
+
+	Vert() = default;
+	Vert(const std::string& name, const size_t id) :
+		name{name},
+		id{id}
+	{
+	}
+
+	Vert(Vert&&) = default;
+
+	inline void fanins_swap_and_pop(
+		const std::string& from) {
+		for (size_t i = 0; i < fanins.size(); i++) {
+			if (fanins[i] == from) {
+				fanins[i] = std::move(fanins.back());
+				fanins.pop_back();
+			}
+		}
+	}
+
+
+	inline void fanouts_swap_and_pop(
+		const std::string& to) {
+		for (size_t i = 0; i < fanouts.size(); i++) {
+			if (fanouts[i] == to) {
+				fanouts[i] = std::move(fanouts.back());
+				fanouts.pop_back();
+			}
+		}
+	}
+
+
+	std::string name;
+	size_t id;
+	std::vector<std::string> fanins;
+	std::vector<std::string> fanouts;
+};
 
 
 
@@ -65,6 +91,8 @@ public:
 		const std::optional<float> w5,
 		const std::optional<float> w6,
 		const std::optional<float> w7);
+
+	void remove_edge(const std::string& from, const std::string& to);
 
 	// NOTE:
 	// I think update edge has to be by index?
@@ -94,6 +122,13 @@ public:
 private:
 
 	void _read_graph(std::istream& is);
+	
+	inline void _edges_swap_and_pop(size_t i) {
+		_edges[i] = std::move(_edges.back());
+		_edges.pop_back();
+		_edges[i].id = i;
+	}
+	
 	// unordered map of vertices
 	std::unordered_map<std::string, Vert> _verts;
 	
