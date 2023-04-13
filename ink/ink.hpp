@@ -9,6 +9,7 @@ namespace ink {
 
 struct Vert;
 struct Edge;
+class Sfxt;
 class Ink;
 
 
@@ -45,6 +46,18 @@ struct Vert {
 
 	Vert(Vert&&) = default;
 
+
+	bool is_src() const;
+	bool is_dst() const;
+
+	inline size_t num_fanins() const {
+		return fanins.size();
+	}
+
+	inline size_t num_fanouts() const {
+		return fanouts.size();
+	}
+
 	inline void fanins_swap_and_pop(
 		const std::string& from) {
 		for (size_t i = 0; i < fanins.size(); i++) {
@@ -72,6 +85,32 @@ struct Vert {
 	std::vector<std::string> fanins;
 	std::vector<std::string> fanouts;
 };
+
+/**
+@brief Suffix tree class
+*/
+class Sfxt {
+friend class Ink;
+	
+public:
+	Sfxt() = default;
+	Sfxt(Sfxt&&);
+
+private:
+
+	// super source
+	std::string _S;
+
+	// suffix tree root
+	std::string _T;
+
+	// topological order of vertices
+	std::vector<std::string> _topo_order; 
+
+	// to record if visited in topological sort
+	std::unordered_map<std::string, bool> _visited;
+};
+
 
 
 
@@ -110,6 +149,11 @@ public:
 		const std::optional<float> w7);
 
 
+	void create_super_src(const std::string& src_name);
+	void create_super_dst(const std::string& dst_name);
+
+	void build_sfxt();
+
 	void dump(std::ostream& os) const;
 
 	inline size_t num_verts() const {
@@ -120,9 +164,9 @@ public:
 		return _edges.size();
 	}
 private:
-
 	void _read_graph(std::istream& is);
-	
+	void _topologize(const std::string& root);
+
 	inline void _edges_swap_and_pop(size_t i) {
 		_edges[i] = std::move(_edges.back());
 		_edges.pop_back();
@@ -134,10 +178,10 @@ private:
 	
 	// vector of edges
 	std::vector<Edge> _edges;
-
-
+	
+	// suffix tree
+	Sfxt _sfxt;
 };
-
 
 
 

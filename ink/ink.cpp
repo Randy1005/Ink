@@ -3,6 +3,25 @@
 
 namespace ink {
 
+
+bool Vert::is_src() const {
+	// no fanins
+	if (num_fanins() == 0) {
+		return true;
+	}
+
+	return false;
+}
+
+bool Vert::is_dst() const {
+	// no fanouts
+	if (num_fanouts() == 0) {
+		return true;
+	}
+
+	return false;
+}
+
 void Ink::read_graph(const std::string& file) {
 	std::ifstream ifs;
 	ifs.open(file);
@@ -37,11 +56,9 @@ void Ink::remove_vertex(const std::string& name) {
 			// update the fanin edges for all to vertices
 			_verts[out].fanins_swap_and_pop(v.name);
 
-			// update the edges
+			// remove the fanout edges
 			remove_edge(v.name, out);
-		
 		}
-
 
 		_verts.erase(found);
 	}
@@ -69,7 +86,6 @@ void Ink::insert_edge(
 	// create vertices if any of the input vertices doesn't exist
 	insert_vertex(from);
 	insert_vertex(to);
-	
 
 	// populate fanins, fanouts 
 	auto& v_from = _verts[from];
@@ -93,6 +109,39 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 			_edges_swap_and_pop(i);	
 		}
 	}
+
+}
+
+
+void Ink::create_super_src(const std::string& src_name) {
+	insert_vertex(src_name);
+	_sfxt._S = src_name;
+	for (const auto& [name, v] : _verts) {
+		if (v.is_src() && name != src_name) {
+			insert_edge(
+				src_name, name, 
+				0, 0, 0, 0, 
+				0, 0, 0, 0);
+		}
+	}
+}
+
+void Ink::create_super_dst(const std::string& dst_name) {
+	insert_vertex(dst_name);
+	_sfxt._T = dst_name;
+	for (const auto& [name, v] : _verts) {
+		if (v.is_dst() && name != dst_name) {
+			insert_edge(
+				name, dst_name, 
+				0, 0, 0, 0, 
+				0, 0, 0, 0);
+		}
+	}
+}
+
+void Ink::build_sfxt() {
+	_topologize(_sfxt._T);
+
 
 }
 
@@ -124,6 +173,14 @@ void Ink::dump(std::ostream& os) const {
 		}
 		os << '\n';
 	}
+
+	os << "------------------\n";
+	os << "Topological Order:\n";
+	os << "------------------\n";
+	for (const auto& t : _sfxt._topo_order) {
+		os << t << ' ';
+	}
+	os << '\n';
 }
 
 void Ink::_read_graph(std::istream& is) {
@@ -178,6 +235,23 @@ void Ink::_read_graph(std::istream& is) {
 	}
 }
 
+void Ink::_topologize(const std::string& root) {	
+	// set visited to true
+	_sfxt._visited[root] = true;
+
+	// base case:
+	// stop at path source
+	const auto& v = _verts[root];
+	if (!v.is_src()) {
+		for (const auto& neighbor : v.fanins) {
+			if (!_sfxt._visited[neighbor]) {
+				_topologize(neighbor);
+			}
+		}
+	}
+
+	_sfxt._topo_order.emplace_back(root);
+}
 
 
 
