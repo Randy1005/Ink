@@ -25,18 +25,21 @@ struct Edge {
 	{
 	}
 
-	Edge(const Edge&) = default;
 
-	std::reference_wrapper<Vert> from;
-	std::reference_wrapper<Vert> to;
+	Vert& from;
+	Vert& to;
 	size_t id;
+
+
+	std::optional<size_t> fanout_satellite;
+	std::optional<size_t> fanin_satellite;
+
 
 	// vector of optional weights
 	std::vector<std::optional<float>> weights;	
 };
 
 struct Vert {
-
 	Vert() = default;
 	Vert(const std::string& name, const size_t id) :
 		name{name},
@@ -44,46 +47,30 @@ struct Vert {
 	{
 	}
 
-	Vert(Vert&&) = default;
-
 
 	bool is_src() const;
 	bool is_dst() const;
 
 	inline size_t num_fanins() const {
-		return fanins.size();
+		return fanin.size();
 	}
 
 	inline size_t num_fanouts() const {
-		return fanouts.size();
+		return fanout.size();
 	}
 
-	inline void fanins_swap_and_pop(
-		const std::string& from) {
-		for (size_t i = 0; i < fanins.size(); i++) {
-			if (fanins[i] == from) {
-				fanins[i] = std::move(fanins.back());
-				fanins.pop_back();
-			}
-		}
-	}
+	void insert_fanout(Edge& edge);
+	void insert_fanin(Edge& edge);
 
-
-	inline void fanouts_swap_and_pop(
-		const std::string& to) {
-		for (size_t i = 0; i < fanouts.size(); i++) {
-			if (fanouts[i] == to) {
-				fanouts[i] = std::move(fanouts.back());
-				fanouts.pop_back();
-			}
-		}
-	}
+	void remove_fanout(Edge& edge);
+	void remove_fanin(Edge& edge);
 
 
 	std::string name;
 	size_t id;
-	std::vector<std::string> fanins;
-	std::vector<std::string> fanouts;
+	
+	std::vector<std::unique_ptr<Edge>> fanin;
+	std::vector<std::unique_ptr<Edge>> fanout;
 };
 
 /**
@@ -109,6 +96,12 @@ private:
 
 	// to record if visited in topological sort
 	std::unordered_map<std::string, bool> _visited;
+
+	// distances
+	std::unordered_map<std::string, std::string> _dist;
+	
+	// parents
+	std::unordered_map<std::string, std::string> _parent;
 };
 
 
@@ -152,6 +145,10 @@ public:
 	void create_super_src(const std::string& src_name);
 	void create_super_dst(const std::string& dst_name);
 
+
+	/**
+		@brief build suffix tree
+	*/
 	void build_sfxt();
 
 	void dump(std::ostream& os) const;
@@ -167,11 +164,11 @@ private:
 	void _read_graph(std::istream& is);
 	void _topologize(const std::string& root);
 
-	inline void _edges_swap_and_pop(size_t i) {
-		_edges[i] = std::move(_edges.back());
-		_edges.pop_back();
-		_edges[i].id = i;
-	}
+	//inline void _edges_swap_and_pop(size_t i) {
+	//	_edges[i] = std::move(_edges.back());
+	//	_edges.pop_back();
+	//	_edges[i].id = i;
+	//}
 	
 	// unordered map of vertices
 	std::unordered_map<std::string, Vert> _verts;
@@ -182,11 +179,6 @@ private:
 	// suffix tree
 	Sfxt _sfxt;
 };
-
-
-
-
-
 
 
 

@@ -22,6 +22,45 @@ bool Vert::is_dst() const {
 	return false;
 }
 
+
+void Vert::insert_fanin(Edge& edge) {
+	assert(&edge.to == this);
+	fanin.emplace_back(std::make_unique<Edge>(edge));
+	edge.fanin_satellite = fanin.size() - 1;
+}
+
+void Vert::insert_fanout(Edge& edge) {
+	assert(&edge.from == this);
+	fanout.emplace_back(std::make_unique<Edge>(edge));
+	edge.fanout_satellite = fanout.size() - 1;
+}
+
+void Vert::remove_fanin(Edge& edge) {
+	//assert(edge.fanin_satellite);
+	//assert(&edge.to == this);
+	//
+	//const auto sat = edge.fanin_satellite.value();
+	//// swap and pop method
+	//fanin[sat] = fanin.back();
+	//fanin.pop_back();
+
+	//// the final element has been relocated, update its satellite index
+	//fanin[sat]->fanin_satellite = sat;
+}
+
+void Vert::remove_fanout(Edge& edge) {
+	//assert(edge.fanout_satellite);
+	//assert(&edge.from == this);
+	//
+	//const auto sat = edge.fanout_satellite.value();
+	//// swap and pop method
+	//fanout[sat] = fanout.back();
+	//fanout.pop_back();
+
+	//// the final element has been relocated, update its satellite index
+	//fanout[sat]->fanout_satellite = sat;
+}
+
 void Ink::read_graph(const std::string& file) {
 	std::ifstream ifs;
 	ifs.open(file);
@@ -35,35 +74,46 @@ void Ink::read_graph(const std::string& file) {
 
 void Ink::insert_vertex(const std::string& name) {
 	const auto id = _verts.size();
-	_verts.emplace(name, std::move(Vert{name, id}));
+	_verts.insert({ name, std::move(Vert{name, id}) });
 }
 
 void Ink::remove_vertex(const std::string& name) {
 	auto found = _verts.find(name);
 	if (found != _verts.end()) {
 		// remove all fanout, fanin edges of this vertex
-		
 		auto& v = (*found).second;
-		for (const auto& in : v.fanins) {
-			// update the fanout edges for all from vertices
-			_verts[in].fanouts_swap_and_pop(v.name);
 
-			// remove the fanin edges
-			remove_edge(in, v.name);
-		}	
-		
-		for (const auto& out : v.fanouts) {
-			// update the fanin edges for all to vertices
-			_verts[out].fanins_swap_and_pop(v.name);
-
-			// remove the fanout edges
-			remove_edge(v.name, out);
+		for (auto& e : v.fanin) {
+			v.remove_fanin(*e);
+			(*e).from.remove_fanout(*e);
+			
+			// update the main edge storage
+			remove_edge((*e).from.name, (*e).to.name);
 		}
+		
+		for (auto& e : v.fanout) {
+			v.remove_fanout(*e);
+			(*e).to.remove_fanin(*e);
+		
+			// update the main edge storage
+			remove_edge((*e).from.name, (*e).to.name);
+		
+	
+			// invalidate optional fanin, fanout satellites
+			(*e).fanin_satellite.reset();
+			(*e).fanout_satellite.reset();
+		}
+
+		// TODO:
+		// I'm removing edges from "_edges"
+		// by scanning the whole storage 
+		// finding matches (API), can be done more
+		// efficiently with another satellite index
 
 		_verts.erase(found);
 	}
 	else {
-		std::cout << "Attempt to remove an non-existent vertex\n";
+		std::cerr << "Attempt to remove an non-existent vertex\n";
 	}
 
 	
@@ -87,29 +137,24 @@ void Ink::insert_edge(
 	insert_vertex(from);
 	insert_vertex(to);
 
-	// populate fanins, fanouts 
-	auto& v_from = _verts[from];
-	auto& v_to = _verts[to];
-	
-	v_from.fanouts.emplace_back(to);
-	v_to.fanins.emplace_back(from);
-	
 	std::vector<std::optional<float>> weights = {
 		w0, w1, w2, w3, w4, w5, w6, w7
 	};
 
-	_edges.emplace_back(v_from, v_to, id, std::move(weights));
+	Edge e(_verts[from], _verts[to], id, std::move(weights));
 
+	e.from.insert_fanout(e);
+	e.to.insert_fanin(e);
 	
+	_edges.push_back(std::move(e));
 }
 
 void Ink::remove_edge(const std::string& from, const std::string& to) {
-	for (size_t i = 0; i < _edges.size(); i++) {
-		if (_edges[i].from.get().name == from && _edges[i].to.get().name == to) {
-			_edges_swap_and_pop(i);	
-		}
-	}
-
+//	for (size_t i = 0; i < _edges.size(); i++) {
+//		if (_edges[i].from.name == from && _edges[i].to.name == to) {
+//			_edges_swap_and_pop(i);	
+//		}
+//	}
 }
 
 
@@ -142,17 +187,34 @@ void Ink::create_super_dst(const std::string& dst_name) {
 void Ink::build_sfxt() {
 	_topologize(_sfxt._T);
 
+	// visit the topological order in reverse
+	for (auto itr = _sfxt._topo_order.rbegin(); 
+			 itr != _sfxt._topo_order.rend(); 
+			 ++itr) {
+		
+		auto v = *itr;
 
+	}
 }
 
 void Ink::dump(std::ostream& os) const {
 	os << num_verts() << " Vertices:\n";
 	os << "------------------\n";
-	for (const auto& v : _verts) {
-		os << "name=" << v.second.name 
-			 << ", id=" << v.second.id 
-			 << ", num fanins=" << v.second.fanins.size()
-			 << ", num fanouts=" << v.second.fanouts.size() << '\n';
+	for (const auto& [name, v] : _verts) {
+		os << "name=" << v.name 
+			 << ", id=" << v.id << '\n'; 
+		os << "... fanins=";
+		for (const auto& e : v.fanin) {
+			os << (*e).from.name << ' ';
+		}
+		os << '\n';
+	
+		os << "... fanouts=";
+		for (const auto& e : v.fanout) {
+			os << (*e).to.name << ' ';
+		}
+		os << '\n';
+
 	}
 
 	os << "------------------\n";
@@ -160,8 +222,8 @@ void Ink::dump(std::ostream& os) const {
 	os << "------------------\n";
 	for (const auto& e : _edges) {
 		os << "id=" << e.id
-			 << " ... name= " << e.from.get().name 
-			 << "->" << e.to.get().name
+			 << " ... name= " << e.from.name 
+			 << "->" << e.to.name
 			 << " ... weights= ";
 		for (const auto& w : e.weights) {
 			if (w.has_value()) {
@@ -243,14 +305,17 @@ void Ink::_topologize(const std::string& root) {
 	// stop at path source
 	const auto& v = _verts[root];
 	if (!v.is_src()) {
-		for (const auto& neighbor : v.fanins) {
-			if (!_sfxt._visited[neighbor]) {
-				_topologize(neighbor);
+		for (const auto& e : v.fanin) {
+			const auto& neighbor = (*e).from;
+			if (!_sfxt._visited[neighbor.name]) {
+				_topologize(neighbor.name);
 			}
 		}
 	}
 
-	_sfxt._topo_order.emplace_back(root);
+
+	_sfxt._topo_order.emplace_back(root);	
+
 }
 
 

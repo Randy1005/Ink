@@ -9,8 +9,8 @@ int main(int argc, char* argv[]) {
 
 	ink::Ink ink;
 	ink.read_graph(argv[1]);
-
-	ink.create_super_dst("SUPER_DST");
+	
+	ink.create_super_dst("SUPER-DST");
 	ink.build_sfxt();
 
 	ink.dump(std::cout);
