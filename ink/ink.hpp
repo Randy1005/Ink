@@ -4,13 +4,56 @@
 #include <string>
 #include <algorithm>
 
-
 namespace ink {
 
 struct Vert;
 struct Edge;
 class Sfxt;
 class Ink;
+
+
+
+struct Vert {
+	Vert() = default;
+	Vert(const std::string& name, const size_t id) :
+		name{name},
+		id{id}
+	{
+	}
+
+	bool is_src() const;
+	bool is_dst() const;
+
+	bool operator == (const Vert& v) const {
+		return v.id == id;
+	}
+
+	inline size_t num_fanins() const {
+		return fanin.size();
+	}
+
+	inline size_t num_fanouts() const {
+		return fanout.size();
+	}
+
+	void insert_fanout(Edge& e);
+	void insert_fanin(Edge& e);
+
+	void remove_fanout(Edge& e);
+	void remove_fanin(Edge& e);
+
+	std::string name;
+	size_t id;
+
+	// TODO: reason why using unique pointer is bad
+	// and understand how unique pointer is implemented
+
+
+
+	// TODO: best practice - and tell me why the above code is shit
+	std::list<Edge*> fanin;
+	std::list<Edge*> fanout;
+};
 
 
 struct Edge {
@@ -26,6 +69,10 @@ struct Edge {
 	}
 
 
+	bool operator == (const Edge& e) const {
+		return e.from.id == from.id && e.to.id == to.id;
+	}
+
 	Vert& from;
 	Vert& to;
 	size_t id;
@@ -34,84 +81,33 @@ struct Edge {
 	std::optional<size_t> fanout_satellite;
 	std::optional<size_t> fanin_satellite;
 
-
 	// vector of optional weights
 	std::vector<std::optional<float>> weights;	
 };
 
-struct Vert {
-	Vert() = default;
-	Vert(const std::string& name, const size_t id) :
-		name{name},
-		id{id}
-	{
-	}
 
-
-	bool is_src() const;
-	bool is_dst() const;
-
-	inline size_t num_fanins() const {
-		return fanin.size();
-	}
-
-	inline size_t num_fanouts() const {
-		return fanout.size();
-	}
-
-	void insert_fanout(Edge& edge);
-	void insert_fanin(Edge& edge);
-
-	void remove_fanout(Edge& edge);
-	void remove_fanin(Edge& edge);
-
-
-	std::string name;
-	size_t id;
-	
-	std::vector<std::unique_ptr<Edge>> fanin;
-	std::vector<std::unique_ptr<Edge>> fanout;
-};
 
 /**
 @brief Suffix tree class
 */
-class Sfxt {
-friend class Ink;
-	
-public:
-	Sfxt() = default;
-	Sfxt(Sfxt&&);
 
-private:
-
-	// super source
-	std::string _S;
-
-	// suffix tree root
-	std::string _T;
-
-	// topological order of vertices
-	std::vector<std::string> _topo_order; 
-
-	// to record if visited in topological sort
-	std::unordered_map<std::string, bool> _visited;
-
-	// distances
-	std::unordered_map<std::string, std::string> _dist;
-	
-	// parents
-	std::unordered_map<std::string, std::string> _parent;
-};
-
+// TODO: move sfxt class to Ink
 
 
 
 class Ink {
+	
 public:
+	Ink() = default;	
+
 	void read_graph(const std::string& file);
-	void insert_vertex(const std::string& name);
+
+	// NOTE: should return a reference
+	// insert_edge would need it
+	Vert& insert_vertex(const std::string& name);
+	
 	void remove_vertex(const std::string& name);
+
 	void insert_edge(
 		const std::string& from,
 		const std::string& to,
@@ -126,61 +122,81 @@ public:
 
 	void remove_edge(const std::string& from, const std::string& to);
 
-	// NOTE:
-	// I think update edge has to be by index?
-	// because based on simple.cpp, multiple edges can have
-	// the same name (even same set of weights)
-	void update_edge(
-		size_t id,
-		const std::optional<float> w0,
-		const std::optional<float> w1,
-		const std::optional<float> w2,
-		const std::optional<float> w3,
-		const std::optional<float> w4,
-		const std::optional<float> w5,
-		const std::optional<float> w6,
-		const std::optional<float> w7);
 
-
-	void create_super_src(const std::string& src_name);
-	void create_super_dst(const std::string& dst_name);
-
-
-	/**
-		@brief build suffix tree
-	*/
 	void build_sfxt();
 
 	void dump(std::ostream& os) const;
 
 	inline size_t num_verts() const {
-		return _verts.size();
+		return _name2v.size();
 	} 
 
 	inline size_t num_edges() const {
 		return _edges.size();
 	}
-private:
-	void _read_graph(std::istream& is);
-	void _topologize(const std::string& root);
 
-	//inline void _edges_swap_and_pop(size_t i) {
-	//	_edges[i] = std::move(_edges.back());
-	//	_edges.pop_back();
-	//	_edges[i].id = i;
-	//}
+
+private:
+	struct Sfxt {
+		Sfxt() = default;
+
+		// super source
+		size_t S;
+
+		// suffix tree root
+		size_t T;
+
+		// topological order of vertices
+		std::vector<size_t> topo_order; 
+
+		// to record if visited in topological sort
+		std::vector<bool> visited;
+
+		// distances 
+		std::vector<float> dists;
+		
+		// parents
+		std::vector<size_t> parents;
+	};
 	
-	// unordered map of vertices
-	std::unordered_map<std::string, Vert> _verts;
+	void _read_graph(std::istream& is);
+	void _topologize(const size_t root);
+
+	// unordered map: name to vertex object
+	// NOTE: this is the owner storage
+	// anything that need access to vertices would store a pointer to it
+	std::unordered_map<std::string, Vert> _name2v;
 	
-	// vector of edges
+	std::vector<Vert*> _vptrs;
+
+	// vertices free list
+	// NOTE: to reuse deleted vertices' id
+	std::vector<size_t> _vfree;   // TODO: study freelist
+
 	std::vector<Edge> _edges;
+	
+	// edges free list
+	// NOTE: to reuse deleted edges' id 
+	std::vector<size_t> _efree;
 	
 	// suffix tree
 	Sfxt _sfxt;
 };
 
 
+// NOTE: concept of free list
+//  0 , 1,  2,  3,  4
+// v1, v2, v3, v4, v5
+//
+// remove v3  => vfree.push-back 2
+
+//  0 , 1,  2,   3,  4
+// v1, v2, nil, v4, v5
+//
+// insert v6 => v6.id = vfree.pop_back() if any, or vertices.size()
+//
+//  0 , 1,  2,   3,  4
+// v1, v2, v6,  v4, v5
 
 } // end of namespace ink
 
