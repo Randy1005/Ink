@@ -37,11 +37,9 @@ free(ptr);
 
 /// TODO: study what unique_ptr is
 void Vert::insert_fanin(Edge& edge) {
-	assert(&edge.to == this);
 }
 
 void Vert::insert_fanout(Edge& edge) {
-	assert(&edge.from == this);
 }
 
 void Vert::remove_fanin(Edge& edge) {
@@ -96,27 +94,18 @@ Vert& Ink::insert_vertex(const std::string& name) {
 
 	// TODO: study piece-wise construct
 	if (itr == _name2v.end()) {
-		// vertex does not exist
-		// see if there's any id that we can reuse
-		if (!_vfree.empty()) {
-			auto id = _vfree.back();
-			_vfree.pop_back();
-			
-			// store in name to object map
-			auto res = _name2v.emplace(name, std::move(Vert{name, id}));
-			
-			_vptrs[id] = &((res.first)->second); 
-			return (res.first)->second;	
+		// store in name to object map
+		auto id = _idxgen_vert.get();
+		auto [iter, success] = _name2v.emplace(name, std::move(Vert{name, id}));
+	
+		// if the index generated goes out of range
+		// resize _vptrs 
+		if (id + 1 > _vptrs.size()) {
+			_vptrs.resize(id + 1);
 		}
-		else {
-			// no free id to reuse
-			// store in name to object map
-			auto id = _name2v.size();
-			auto res = _name2v.emplace(name, std::move(Vert{name, id}));
-			
-			_vptrs.push_back( &((res.first)->second) ); 
-			return (res.first)->second;	
-		}
+
+		_vptrs[id] = &(iter->second); 
+		return iter->second;	
 	}
 	else {
 		return itr->second;
@@ -147,8 +136,8 @@ void Ink::insert_edge(
 	};
 
 
-	auto& v_from = insert_vertex(from);
-	auto& v_to = insert_vertex(to);
+	Vert& v_from = insert_vertex(from);
+	Vert& v_to = insert_vertex(to);
 
 
 	// NOTE: if I use std::pair as key
@@ -156,7 +145,7 @@ void Ink::insert_edge(
 	// which I don't think we're able to define a high-quality hash function?
 	// so I simply scan thru the edge vector here
 	auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
-		return e.from.name == from && e.to.name == to;
+		return (e.from.name == from) && (e.to.name == to);
 	});
 
 
@@ -177,15 +166,17 @@ void Ink::insert_edge(
 			auto id = _efree.back();
 			_efree.pop_back();
 
-			Edge& e = _edges.emplace_back(v_from, v_to, id, std::move(ws));
-			v_from.fanout.push_back(&e);
-			v_to.fanin.push_back(&e);
-
+			// insert this new edge into the free slot
+			//auto beg = _edges.begin();
+			//auto itr = edges.insert(std::next(beg, id), {v_from, v_to, id, std::move(ws)});
+			
 		}
 		else {
-			Edge& e = _edges.emplace_back(v_from, v_to, _edges.size(), std::move(ws));
-			v_from.fanout.push_back(&e);
-			v_to.fanin.push_back(&e);
+			// no free id to assign, need to increase list size
+			auto& e = _edges.emplace_back(v_from, v_to, _edges.size(), std::move(ws));
+		
+			e.from.fanout.push_back(&e);	
+			e.to.fanin.push_back(&e);	
 		}
 
 	}
@@ -214,8 +205,8 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 	auto& v_from = itr->from;
 	auto& v_to = itr->to;
 
-
-	// TODO: remove
+	// add this edge id to edge free list
+	_efree.push_back(itr->id);
 
 	/// TODO:
 	//auto itr = _edges.find({from, to});
@@ -255,13 +246,13 @@ void Ink::dump(std::ostream& os) const {
 			 << ", id=" << v.id << '\n'; 
 		os << "... fanins=";
 		for (const auto& e : v.fanin) {
-			os << (*e).from.name << ' ';
+			os << e->from.name << ' ';
 		}
 		os << '\n';
 	
 		os << "... fanouts=";
 		for (const auto& e : v.fanout) {
-			os << (*e).to.name << ' ';
+			os << e->to.name << ' ';
 		}
 		os << '\n';
 	}

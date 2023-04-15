@@ -15,19 +15,25 @@ int main(int argc, char* argv[]) {
 	// a total of N+2 vertices
 	// NOTE: super src/dst are used implicitly
 	
-	ink.insert_vertex("v1");
 
 	ink.insert_edge("v1", "v2",
 		0, std::nullopt, std::nullopt, 0,
 		std::nullopt, 0, 0, 0);
 
-
-
 	ink.insert_edge("v1", "v2",
-		0, 1.25, 3.78, 0,
-		3.08, 0, 0, 0);
+		0, std::nullopt, std::nullopt, 0,
+		std::nullopt, 0, 0, 0);
+
+	ink.insert_edge("v4", "v3",
+		0, std::nullopt, std::nullopt, 0,
+		std::nullopt, 0, 0, 0);
+
+	ink.insert_edge("v5", "v3",
+		0, 3.87, std::nullopt, 0,
+		-0.87, 0, 0, 0);
 
 
+	
 	ink.dump(std::cout);
 	return 0;
 }

@@ -3,7 +3,7 @@ enable_testing()
 include(${INK_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
 list(APPEND INK_UNITTESTS
-
+  basics
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)

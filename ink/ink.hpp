@@ -21,12 +21,9 @@ struct Vert {
 	{
 	}
 
+
 	bool is_src() const;
 	bool is_dst() const;
-
-	bool operator == (const Vert& v) const {
-		return v.id == id;
-	}
 
 	inline size_t num_fanins() const {
 		return fanin.size();
@@ -60,17 +57,12 @@ struct Edge {
 	Edge() = default;
 	Edge(Vert& v_from, Vert& v_to, 
 			 const size_t id,
-			 const std::vector<std::optional<float>>& ws) :
+			 std::vector<std::optional<float>>&& ws) :
 		from{v_from},
 		to{v_to},
 		id{id},
-		weights{ws}
+		weights{std::move(ws)}
 	{
-	}
-
-
-	bool operator == (const Edge& e) const {
-		return e.from.id == from.id && e.to.id == to.id;
 	}
 
 	Vert& from;
@@ -78,21 +70,33 @@ struct Edge {
 	size_t id;
 
 
-	std::optional<size_t> fanout_satellite;
-	std::optional<size_t> fanin_satellite;
+	std::optional<std::list<Edge*>::iterator> fanout_satellite;
+	std::optional<std::list<Edge*>::iterator> fanin_satellite;
 
 	// vector of optional weights
 	std::vector<std::optional<float>> weights;	
 };
 
 
+struct IdxGen {
+	IdxGen() = default;
 
-/**
-@brief Suffix tree class
-*/
 
-// TODO: move sfxt class to Ink
+	size_t get() {
+		if (freelist.empty()) {
+			return counter++;
+		}
+		
+		// pop a free idx from free list
+		auto idx = freelist.back();
+		freelist.pop_back();
+		return idx;
+		
+	}
 
+	size_t counter = 0;
+	std::vector<size_t> freelist;
+};
 
 
 class Ink {
@@ -173,14 +177,22 @@ private:
 	// NOTE: to reuse deleted vertices' id
 	std::vector<size_t> _vfree;   // TODO: study freelist
 
-	std::vector<Edge> _edges;
+	std::list<Edge> _edges;
 	
+	std::vector<Edge*> _eptrs;
 	// edges free list
 	// NOTE: to reuse deleted edges' id 
 	std::vector<size_t> _efree;
 	
 	// suffix tree
 	Sfxt _sfxt;
+
+	// index generator : vertices
+	IdxGen _idxgen_vert;
+
+
+	// index generator : edges
+	IdxGen _idxgen_edge;
 };
 
 
