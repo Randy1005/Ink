@@ -64,13 +64,20 @@ TEST_CASE("Vertex Insertion + Removal" * doctest::timeout(300)) {
 	// fanout to v2, v3, v4, v5
 	// fanin from v6, v7
 	// should all get removed
+
+	ink.remove_vertex("v1");
 	
-	//REQUIRE(ink.num_edges() == 2);
-	//REQUIRE(ink.num_verts() == 8);
-	//REQUIRE(v1.num_fanouts() == 0);
-	//REQUIRE(v1.num_fanins() == 0);
-	//REQUIRE(v2.num_fanouts() == 2);
-	//REQUIRE(v2.num_fanins() == 0);
+	// NOTE:
+	// possible issue
+	// I left v1's ref exposed here
+	// but the information of v1 is no longer
+	// valid, but the ref is still accessible
+	
+	
+	REQUIRE(ink.num_edges() == 2);
+	REQUIRE(ink.num_verts() == 8);
+	REQUIRE(v2.num_fanouts() == 2);
+	REQUIRE(v2.num_fanins() == 0);
 
 
 
