@@ -36,36 +36,30 @@ free(ptr);
 */
 
 /// TODO: study what unique_ptr is
-void Vert::insert_fanin(Edge& edge) {
+void Vert::insert_fanin(Edge& e) {
+	e.fanin_satellite = fanin.insert(fanin.end(), &e);
 }
 
-void Vert::insert_fanout(Edge& edge) {
+void Vert::insert_fanout(Edge& e) {
+	e.fanout_satellite = fanout.insert(fanout.end(), &e);
 }
 
-void Vert::remove_fanin(Edge& edge) {
-	//assert(edge.fanin_satellite);
-	//assert(&edge.to == this);
-	//
-	//const auto sat = edge.fanin_satellite.value();
-	//// swap and pop method
-	//fanin[sat] = fanin.back();
-	//fanin.pop_back();
+void Vert::remove_fanin(Edge& e) {
+	assert(e.fanin_satellite);
+	assert(&e.to == this);
+	fanin.erase(*(e.fanin_satellite));
 
-	//// the final element has been relocated, update its satellite index
-	//fanin[sat]->fanin_satellite = sat;
+	// invalidate satellite iterator
+	e.fanin_satellite.reset();
 }
 
-void Vert::remove_fanout(Edge& edge) {
-	//assert(edge.fanout_satellite);
-	//assert(&edge.from == this);
-	//
-	//const auto sat = edge.fanout_satellite.value();
-	//// swap and pop method
-	//fanout[sat] = fanout.back();
-	//fanout.pop_back();
+void Vert::remove_fanout(Edge& e) {
+	assert(e.fanout_satellite);
+	assert(&e.from == this);
+	fanout.erase(*(e.fanout_satellite));
 
-	//// the final element has been relocated, update its satellite index
-	//fanout[sat]->fanout_satellite = sat;
+	// invalidate satellite iterator
+	e.fanout_satellite.reset();
 }
 
 void Ink::read_graph(const std::string& file) {
@@ -98,10 +92,9 @@ Vert& Ink::insert_vertex(const std::string& name) {
 		auto id = _idxgen_vert.get();
 		auto [iter, success] = _name2v.emplace(name, std::move(Vert{name, id}));
 	
-		// if the index generated goes out of range
-		// resize _vptrs 
+		// if the index generated goes out of range, resize _vptrs 
 		if (id + 1 > _vptrs.size()) {
-			_vptrs.resize(id + 1);
+			_vptrs.resize(id + 1, nullptr);
 		}
 
 		_vptrs[id] = &(iter->second); 
@@ -115,11 +108,45 @@ Vert& Ink::insert_vertex(const std::string& name) {
 }
 
 void Ink::remove_vertex(const std::string& name) {
+	auto itr = _name2v.find(name);
 
+	if (itr == _name2v.end()) {
+		// vertex non-existent, nothing to do
+		return;
+	}
 	
+
+	// iterate through this vertex's
+	// fanin and fanouts and remove them
+	auto& v = itr->second;
+
+	for (auto& e : v.fanin) {
+		// remove edge pointer mapping and recycle free id
+		_eptrs[e->id] = nullptr;
+		_idxgen_edge.recycle(e->id);
+		e->from.remove_fanout(*e);
+		assert(e->satellite);
+		_edges.erase(*e->satellite);
+		e->satellite.reset();
+	}
+	for (auto& e : v.fanout) {
+		_eptrs[e->id] = nullptr;
+		_idxgen_edge.recycle(e->id);
+		e->to.remove_fanin(*e);
+		assert(e->satellite);
+		_edges.erase(*e->satellite);
+		e->satellite.reset();
+	}
+
+
+	// remove vertex pointer mapping and recycle free id
+	_vptrs[v.id] = nullptr;
+	_idxgen_vert.recycle(v.id);
+	_name2v.erase(itr);
+
 }
 
-void Ink::insert_edge(
+Edge& Ink::insert_edge(
 	const std::string& from,
 	const std::string& to,
 	const std::optional<float> w0, 
@@ -157,33 +184,38 @@ void Ink::insert_edge(
 				itr->weights[i] = ws[i];
 			}
 		}
+
+		return (*itr);
 	}
 	else {
-
 		// edge doesn't exist
-		// check if there's a free id to assign
-		if (!_efree.empty()) {
-			auto id = _efree.back();
-			_efree.pop_back();
-
-			// insert this new edge into the free slot
-			//auto beg = _edges.begin();
-			//auto itr = edges.insert(std::next(beg, id), {v_from, v_to, id, std::move(ws)});
-			
-		}
-		else {
-			// no free id to assign, need to increase list size
-			auto& e = _edges.emplace_back(v_from, v_to, _edges.size(), std::move(ws));
+		auto id = _idxgen_edge.get();
+		auto& e = _edges.emplace_front(v_from, v_to, id, std::move(ws));
 		
-			e.from.fanout.push_back(&e);	
-			e.to.fanin.push_back(&e);	
+		// cache the edge's satellite iterator
+		// in the owner storage
+		e.satellite = _edges.begin();
+		
+		// resize _eptr if the generated index goes out of range
+		if (id + 1 > _eptrs.size()) {
+			_eptrs.resize(id + 1, nullptr);
 		}
 
+		// store pointer to this edge object
+		_eptrs[id] = &e;
+
+		// update fanin, fanout
+		// cache fanin, fanout satellite iterators
+		// (for edge removal)
+		e.from.insert_fanout(e);
+		e.to.insert_fanin(e);
+		
+		
+		return e; 
 	}
 
 
 	// TODO: study emplace
-
 	//	auto e = _edges.emplace(
 	//		std::piecewise_construct,
 	//		std::forward_as_tuple(from, to),
@@ -202,23 +234,9 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 		return;
 	}
 	
-	auto& v_from = itr->from;
-	auto& v_to = itr->to;
-
-	// add this edge id to edge free list
-	_efree.push_back(itr->id);
-
-	/// TODO:
-	//auto itr = _edges.find({from, to});
-	//if(itr == _edges.end()) {
-	//  return;
-	//}
-	////
-	//auto& from_v = itr->second.from;
-	//auto& to_v   = itr->second.to;
-	//from_v.fanout.remove(&(itr->second));
-	//to_v.fanin.revmoe(&(itr->second));
+	_remove_edge(*itr);
 }
+
 
 // TODO: super target and super source are just concept for implementing
 // the algorithm. they do not really exist 
@@ -264,8 +282,10 @@ void Ink::dump(std::ostream& os) const {
 		if (p != nullptr) {
 			os << "ptr to " << p->name << '\n';
 		}
+		else {
+			os << "ptr to null\n";
+		}
 	}
-
 
 	os << "------------------\n";
 	os << num_edges() << " Edges:\n";
@@ -284,6 +304,19 @@ void Ink::dump(std::ostream& os) const {
 			}
 		}
 		os << '\n';
+	}
+
+	
+	os << "------------------\n";
+	os << " Edges Ptrs:\n";
+	os << "------------------\n";
+	for (auto& e : _eptrs) {
+		if (e != nullptr) {
+			os << "ptr to " << e->from.name << "->" << e->to.name << '\n';
+		}
+		else {
+			os << "ptr to null\n";
+		}
 	}
 
 	//os << "------------------\n";
@@ -347,6 +380,24 @@ void Ink::_read_graph(std::istream& is) {
 	
 	}
 }
+
+void Ink::_remove_edge(Edge& e) {
+
+	// update fanout of v_from, fanin of v_to
+	e.from.remove_fanout(e);
+	e.to.remove_fanin(e);
+	
+	// remove pointer mapping and recycle free id
+	_eptrs[e.id] = nullptr;
+	_idxgen_edge.recycle(e.id);
+	
+	// remove this edge from the owner storage
+	assert(e.satellite);
+	_edges.erase(*e.satellite);
+}
+
+
+
 
 void Ink::_topologize(const size_t root) {	
 	// set visited to true

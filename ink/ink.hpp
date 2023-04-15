@@ -12,7 +12,9 @@ class Sfxt;
 class Ink;
 
 
-
+/**
+@brief Vertex
+*/
 struct Vert {
 	Vert() = default;
 	Vert(const std::string& name, const size_t id) :
@@ -21,6 +23,9 @@ struct Vert {
 	{
 	}
 
+	Vert(Vert&&) = default;
+	Vert& operator = (const Vert&) = default; 
+	Vert(const Vert&) = default;
 
 	bool is_src() const;
 	bool is_dst() const;
@@ -35,7 +40,6 @@ struct Vert {
 
 	void insert_fanout(Edge& e);
 	void insert_fanin(Edge& e);
-
 	void remove_fanout(Edge& e);
 	void remove_fanin(Edge& e);
 
@@ -65,38 +69,28 @@ struct Edge {
 	{
 	}
 
+	bool operator == (const Edge& other) const {
+		return &from == &other.from && &to == &other.to;
+	}
+
+	bool operator != (const Edge& other) const {
+		return !operator==(other);
+	}
+
 	Vert& from;
 	Vert& to;
 	size_t id;
 
-
+	std::optional<std::list<Edge>::iterator> satellite;
 	std::optional<std::list<Edge*>::iterator> fanout_satellite;
 	std::optional<std::list<Edge*>::iterator> fanin_satellite;
+
+
 
 	// vector of optional weights
 	std::vector<std::optional<float>> weights;	
 };
 
-
-struct IdxGen {
-	IdxGen() = default;
-
-
-	size_t get() {
-		if (freelist.empty()) {
-			return counter++;
-		}
-		
-		// pop a free idx from free list
-		auto idx = freelist.back();
-		freelist.pop_back();
-		return idx;
-		
-	}
-
-	size_t counter = 0;
-	std::vector<size_t> freelist;
-};
 
 
 class Ink {
@@ -106,13 +100,11 @@ public:
 
 	void read_graph(const std::string& file);
 
-	// NOTE: should return a reference
-	// insert_edge would need it
 	Vert& insert_vertex(const std::string& name);
 	
 	void remove_vertex(const std::string& name);
 
-	void insert_edge(
+	Edge& insert_edge(
 		const std::string& from,
 		const std::string& to,
 		const std::optional<float> w0,
@@ -125,7 +117,6 @@ public:
 		const std::optional<float> w7);
 
 	void remove_edge(const std::string& from, const std::string& to);
-
 
 	void build_sfxt();
 
@@ -141,6 +132,10 @@ public:
 
 
 private:
+
+	/**
+	@brief Suffix Tree
+	*/
 	struct Sfxt {
 		Sfxt() = default;
 
@@ -162,10 +157,41 @@ private:
 		// parents
 		std::vector<size_t> parents;
 	};
+
+	/**
+	@brief Index Generator
+	*/
+	struct IdxGen {
+		IdxGen() = default;
+
+		inline size_t get() {
+			if (freelist.empty()) {
+				return counter++;
+			}
+			
+			// pop a free idx from free list
+			auto idx = freelist.back();
+			freelist.pop_back();
+			return idx;
+		
+		}
+
+		inline void recycle(size_t free_id) {
+			// push this id to free list
+			freelist.push_back(free_id);
+		}
+
+		size_t counter = 0;
+		std::vector<size_t> freelist;
+	};
+
 	
 	void _read_graph(std::istream& is);
 	void _topologize(const size_t root);
 
+	
+	void _remove_edge(Edge& e);
+	
 	// unordered map: name to vertex object
 	// NOTE: this is the owner storage
 	// anything that need access to vertices would store a pointer to it
