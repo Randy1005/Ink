@@ -10,7 +10,8 @@ int main(int argc, char* argv[]) {
 	ink::Ink ink;
 	ink.read_graph(argv[1]);
 
-	ink.remove_edge("u1:A", "u1:Y");
+	ink.report(5);
+
 
 	ink.dump(std::cout);
 

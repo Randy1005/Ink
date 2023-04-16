@@ -62,6 +62,11 @@ void Vert::remove_fanout(Edge& e) {
 	e.fanout_satellite.reset();
 }
 
+std::string Edge::name() const {
+	return from.name + "->" + to.name;
+}
+
+
 void Ink::read_graph(const std::string& file) {
 	std::ifstream ifs;
 	ifs.open(file);
@@ -209,8 +214,6 @@ Edge& Ink::insert_edge(
 		// (for edge removal)
 		e.from.insert_fanout(e);
 		e.to.insert_fanin(e);
-		
-		
 		return e; 
 	}
 
@@ -238,22 +241,10 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 }
 
 
-// TODO: super target and super source are just concept for implementing
-// the algorithm. they do not really exist 
+void Ink::report(const size_t k) {
+	_build_sfxt();
+	
 
-
-void Ink::build_sfxt() {
-	//topologize(_sfxt.T);
-
-
-	/// visit the topological order in reverse
-	//or (auto itr = _sfxt.topo_order.rbegin(); 
-	// 	 itr != _sfxt.topo_order.rend(); 
-	// 	 ++itr) {
-	//
-	// // TODO: rewrite with linear ordering
-
-	//
 }
 
 void Ink::dump(std::ostream& os) const {
@@ -319,22 +310,25 @@ void Ink::dump(std::ostream& os) const {
 		}
 	}
 
-	//os << "------------------\n";
-	//os << "Topological Order:\n";
-	//os << "------------------\n";
-	//for (const auto& t : _sfxt.topo_order) {
-	//	os << t << ' ';
-	//}
-	//os << '\n';
+	os << "------------------\n";
+	os << "Suffix Tree:\n";
+	os << "------------------\n";
+	for (auto& v : _sfxt.topo_order) {
+		auto e = _eptrs[_sfxt.links[v]];
+		os << _vptrs[v]->name << " ... ";
+		os << "link=" << e->name() << " ... ";
+		os << "dist=" << _sfxt.dists[v] << " ... ";
+		os << '\n';
+	}
+
+
 
 }
 
 void Ink::_read_graph(std::istream& is) {
 	std::string buf;
-
 	while (true) {
 		is >> buf;
-
 		if (is.eof()) {
 			break;
 		}
@@ -381,8 +375,36 @@ void Ink::_read_graph(std::istream& is) {
 	}
 }
 
-void Ink::_remove_edge(Edge& e) {
+Edge& Ink::_insert_edge(
+	Vert& from, 
+	Vert& to, 
+	std::vector<std::optional<float>>&& ws) {
+	
+	auto id = _idxgen_edge.get();
+	auto& e = _edges.emplace_front(from, to, id, std::move(ws));
+	
+	// cache the edge's satellite iterator
+	// in the owner storage
+	e.satellite = _edges.begin();
+	
+	// resize _eptr if the generated index goes out of range
+	if (id + 1 > _eptrs.size()) {
+		_eptrs.resize(id + 1, nullptr);
+	}
 
+	// store pointer to this edge object
+	_eptrs[id] = &e;
+
+	// update fanin, fanout
+	// cache fanin, fanout satellite iterators
+	// (for edge removal)
+	e.from.insert_fanout(e);
+	e.to.insert_fanin(e);
+	return e; 
+}
+
+
+void Ink::_remove_edge(Edge& e) {
 	// update fanout of v_from, fanin of v_to
 	e.from.remove_fanout(e);
 	e.to.remove_fanin(e);
@@ -396,20 +418,84 @@ void Ink::_remove_edge(Edge& e) {
 	_edges.erase(*e.satellite);
 }
 
-
-
-
-void Ink::_topologize(const size_t root) {	
+void Ink::_topologize(const size_t v) {	
 	// set visited to true
-	//_sfxt.visited[root] = true;
+	_sfxt.visited[v] = true;
 
+	auto& vert = _vptrs[v];
 	
-	// TODO: rewrite with linear indexing
+	// base case: stop at path source
+	if (!vert->is_src()) {
+		for (auto& e : vert->fanin) {
+			if (!_sfxt.visited[e->from.id]) {
+				_topologize(e->from.id);
+			}			
+		}
+	}
+	
+	_sfxt.topo_order.push_back(v);
+}
+
+void Ink::_build_sfxt() {
+	// NOTE: super source and target are implicitly generated
+	// add a super target and super source
+	// connect super source to all in-degree=0 vertices
+	// connect super targe to all out-degree=0 vertices
+	auto& tgt = insert_vertex("_T");
+
+	for (auto& v : _vptrs) {
+		// NOTE: do we need a super src here?
+		//if (v != nullptr && v->is_src()) {
+		//	_insert_edge(src, *v, std::move(ws_src));	
+		//}
+
+		if (v != nullptr && v->is_dst() && (v->id != tgt.id)) {
+			std::vector<std::optional<float>> ws_tgt = {
+				0, 0, 0, 0, 0, 0, 0, 0
+			};
+			_insert_edge(*v, tgt, std::move(ws_tgt));
+		}
+	}
+
+	_sfxt.visited.resize(_vptrs.size(), false);
+	_sfxt.dists.resize(_vptrs.size(), std::numeric_limits<float>::max());
+	_sfxt.dists[tgt.id] = 0.0;
+	_sfxt.parents.resize(_vptrs.size());
+	_sfxt.links.resize(_vptrs.size());
+	_sfxt.T = tgt.id;
+	
+	assert(_sfxt.topo_order.empty());
+	// generate topological order of vertices
+	_topologize(_sfxt.T);
+
+
+	/// visit the topological order in reverse
+	for (auto itr = _sfxt.topo_order.rbegin(); 
+		itr != _sfxt.topo_order.rend(); 
+		++itr) {
+		auto v = *itr;
+		auto pin = _vptrs[v]; 
+		assert(pin != nullptr);	
+
+		if (pin->is_src()) {
+			_sfxt.srcs.try_emplace(v, std::nullopt);
+			continue;
+		}
+
+		for (auto e : pin->fanin) {
+			// relaxation
+			float d = _sfxt.dists[v] + e->min_valid_weight();
+			if (d < _sfxt.dists[e->from.id]) {
+				_sfxt.dists[e->from.id] = d;
+				_sfxt.parents[e->from.id] = v;
+				_sfxt.links[e->from.id] = e->id;
+			}
+		}
+
+	}	
 
 
 }
-
-
 
 
 } // end of namespace ink 

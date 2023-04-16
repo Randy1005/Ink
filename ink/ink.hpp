@@ -48,7 +48,7 @@ struct Vert {
 
 	// TODO: reason why using unique pointer is bad
 	// and understand how unique pointer is implemented
-
+	
 
 
 	// TODO: best practice - and tell me why the above code is shit
@@ -69,13 +69,19 @@ struct Edge {
 	{
 	}
 
-	bool operator == (const Edge& other) const {
-		return &from == &other.from && &to == &other.to;
+	std::string name() const;
+
+	// TODO: is this the right weight to use? 
+	inline float min_valid_weight() const {
+		float v = std::numeric_limits<float>::max();
+		for (auto w : weights) {
+			if (w.has_value() && w.value() < v) {
+				v = w.value();
+			}
+		}
+		return v;
 	}
 
-	bool operator != (const Edge& other) const {
-		return !operator==(other);
-	}
 
 	Vert& from;
 	Vert& to;
@@ -84,7 +90,6 @@ struct Edge {
 	std::optional<std::list<Edge>::iterator> satellite;
 	std::optional<std::list<Edge*>::iterator> fanout_satellite;
 	std::optional<std::list<Edge*>::iterator> fanin_satellite;
-
 
 
 	// vector of optional weights
@@ -118,7 +123,7 @@ public:
 
 	void remove_edge(const std::string& from, const std::string& to);
 
-	void build_sfxt();
+	void report(const size_t k);
 
 	void dump(std::ostream& os) const;
 
@@ -145,6 +150,9 @@ private:
 		// suffix tree root
 		size_t T;
 
+		// sources
+		std::unordered_map<size_t, std::optional<float>> srcs;
+
 		// topological order of vertices
 		std::vector<size_t> topo_order; 
 
@@ -156,6 +164,11 @@ private:
 		
 		// parents
 		std::vector<size_t> parents;
+	
+		// links (edge ids)
+		std::vector<size_t> links;
+
+
 	};
 
 	/**
@@ -187,37 +200,39 @@ private:
 
 	
 	void _read_graph(std::istream& is);
+	
 	void _topologize(const size_t root);
 
+	void _build_sfxt();
 	
+	Edge& _insert_edge(
+		Vert& from, 
+		Vert& to,
+		std::vector<std::optional<float>>&& ws);
 	void _remove_edge(Edge& e);
-	
+
 	// unordered map: name to vertex object
 	// NOTE: this is the owner storage
 	// anything that need access to vertices would store a pointer to it
 	std::unordered_map<std::string, Vert> _name2v;
-	
-	std::vector<Vert*> _vptrs;
 
-	// vertices free list
-	// NOTE: to reuse deleted vertices' id
-	std::vector<size_t> _vfree;   // TODO: study freelist
+	// ordered pointer storage
+	std::vector<Vert*> _vptrs;
 
 	std::list<Edge> _edges;
 	
 	std::vector<Edge*> _eptrs;
-	// edges free list
-	// NOTE: to reuse deleted edges' id 
-	std::vector<size_t> _efree;
-	
+
 	// suffix tree
 	Sfxt _sfxt;
 
 	// index generator : vertices
+	// NOTE: free list is defined in this object
 	IdxGen _idxgen_vert;
 
 
 	// index generator : edges
+	// NOTE: free list is defined in this object
 	IdxGen _idxgen_edge;
 };
 
