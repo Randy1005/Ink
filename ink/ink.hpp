@@ -46,10 +46,6 @@ struct Vert {
 	std::string name;
 	size_t id;
 
-	// TODO: reason why using unique pointer is bad
-	// and understand how unique pointer is implemented
-	
-
 
 	// TODO: best practice - and tell me why the above code is shit
 	std::list<Edge*> fanin;
@@ -209,7 +205,8 @@ private:
 			size_t t,
 			const Edge* e,
 			const PfxtNode* p);		
-
+		
+		PfxtNode* pop();
 
 		const Sfxt& sfxt;
 		

@@ -29,13 +29,12 @@ auto a = std::make_unique<int>(5);
 }
 
 {
-int a = 5;
-int* ptr = &a;
-free(ptr);
+	auto a = std::unique_ptr<int>(new int(5));
+
 }
+
 */
 
-/// TODO: study what unique_ptr is
 void Vert::insert_fanin(Edge& e) {
 	e.fanin_satellite = fanin.insert(fanin.end(), &e);
 }
@@ -544,6 +543,19 @@ void Ink::Pfxt::push(
 	std::push_heap(nodes.begin(), nodes.end(), comp);
 }
 
+
+Ink::PfxtNode* Ink::Pfxt::pop() {
+	// swap [0] and [N-1], and heapify [first, N-1)
+	std::pop_heap(nodes.begin(), nodes.end(), comp);
+
+	// get the min element from heap
+	// now it's located in the back
+	// NOTE: ownership is transferred to paths
+	paths.push_back(std::move(nodes.back()));
+
+	// and return a poiner to this node object
+	return paths.back().get();	
+}
 
 
 } // end of namespace ink 
