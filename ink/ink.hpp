@@ -172,6 +172,60 @@ private:
 	};
 
 	/**
+	@brief Prefix Tree Node
+	*/
+	struct PfxtNode {
+		PfxtNode(float w, size_t f, size_t t, const Edge* e, const PfxtNode* p);
+
+		float weight;
+		size_t from;
+		size_t to;
+		const Edge* edge{nullptr};
+		const PfxtNode* parent{nullptr}; 
+	};
+
+
+	/**
+	@brief Prefix Tree
+	*/
+	struct Pfxt {
+		struct PfxtNodeComp {
+			bool operator() (
+				const std::unique_ptr<PfxtNode>& a,
+				const std::unique_ptr<PfxtNode>& b) const {
+				return a->weight > b->weight;
+			}	
+		};
+
+		Pfxt(const Sfxt& sfxt);
+		Pfxt(Pfxt&& other);
+		Pfxt& operator = (Pfxt&& other) = delete;
+
+
+		
+		void push(
+			float w,
+			size_t f,
+			size_t t,
+			const Edge* e,
+			const PfxtNode* p);		
+
+
+		const Sfxt& sfxt;
+		
+		// prefix node comparator object
+		PfxtNodeComp comp;
+
+		// path
+		std::vector<std::unique_ptr<PfxtNode>> paths;
+		
+		// nodes (to use as a heap)
+		std::vector<std::unique_ptr<PfxtNode>> nodes;
+
+
+	};
+
+	/**
 	@brief Index Generator
 	*/
 	struct IdxGen {

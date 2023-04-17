@@ -301,7 +301,7 @@ void Ink::dump(std::ostream& os) const {
 	os << "------------------\n";
 	os << " Edges Ptrs:\n";
 	os << "------------------\n";
-	for (auto& e : _eptrs) {
+	for (const auto& e : _eptrs) {
 		if (e != nullptr) {
 			os << "ptr to " << e->from.name << "->" << e->to.name << '\n';
 		}
@@ -313,13 +313,22 @@ void Ink::dump(std::ostream& os) const {
 	os << "------------------\n";
 	os << "Suffix Tree:\n";
 	os << "------------------\n";
-	for (auto& v : _sfxt.topo_order) {
-		auto e = _eptrs[_sfxt.links[v]];
+	for (const auto& v : _sfxt.topo_order) {
+		auto link_name = (_sfxt.links[v] != -1) ? 
+			_eptrs[_sfxt.links[v]]->name() :
+			"n/a";
+
 		os << _vptrs[v]->name << " ... ";
-		os << "link=" << e->name() << " ... ";
+		os << "link=" << link_name << " ... ";
 		os << "dist=" << _sfxt.dists[v] << " ... ";
 		os << '\n';
 	}
+
+	os << "Srcs = ";
+	for (const auto& src : _sfxt.srcs) {
+		os << _vptrs[src.first]->name << ' ';
+	}
+	os << '\n';
 
 
 
@@ -457,11 +466,12 @@ void Ink::_build_sfxt() {
 		}
 	}
 
+	// resize suffix tree storages
 	_sfxt.visited.resize(_vptrs.size(), false);
 	_sfxt.dists.resize(_vptrs.size(), std::numeric_limits<float>::max());
 	_sfxt.dists[tgt.id] = 0.0;
-	_sfxt.parents.resize(_vptrs.size());
-	_sfxt.links.resize(_vptrs.size());
+	_sfxt.parents.resize(_vptrs.size(), -1);
+	_sfxt.links.resize(_vptrs.size(), -1);
 	_sfxt.T = tgt.id;
 	
 	assert(_sfxt.topo_order.empty());
@@ -494,8 +504,46 @@ void Ink::_build_sfxt() {
 
 	}	
 
-
 }
+
+
+Ink::PfxtNode::PfxtNode(
+	float w, 
+	size_t f, 
+	size_t t, 
+	const Edge* e,
+	const PfxtNode* p) :
+	weight{w},
+	from{f},
+	to{t},
+	edge{e},
+	parent{p}
+{ 
+}
+
+Ink::Pfxt::Pfxt(const Sfxt& sfxt) : sfxt{sfxt} 
+{
+}
+
+Ink::Pfxt::Pfxt(Pfxt&& other) :
+	sfxt{other.sfxt},
+	comp{other.comp},
+	paths{std::move(other.paths)},
+	nodes{std::move(other.nodes)}
+{
+}
+
+void Ink::Pfxt::push(
+	float w,
+	size_t f,
+	size_t t,
+	const Edge* e,
+	const PfxtNode* p) {
+	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p));
+	// heapify nodes
+	std::push_heap(nodes.begin(), nodes.end(), comp);
+}
+
 
 
 } // end of namespace ink 
