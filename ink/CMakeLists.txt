@@ -1,7 +1,7 @@
 add_library(ink ink.cpp)
 
 # ----------------------------------------------
-# specify other sources for the inktimer library
+# specify other sources for the ink library
 # (if any) with target_sources
 # ----------------------------------------------
 

@@ -319,16 +319,9 @@ void Ink::dump(std::ostream& os) const {
 
 		os << _vptrs[v]->name << " ... ";
 		os << "link=" << link_name << " ... ";
-		os << "dist=" << _sfxt.dists[v] << " ... ";
+		os << "dist=" << _sfxt.dists[v];
 		os << '\n';
 	}
-
-	os << "Srcs = ";
-	for (const auto& src : _sfxt.srcs) {
-		os << _vptrs[src.first]->name << ' ';
-	}
-	os << '\n';
-
 
 
 }
@@ -446,32 +439,30 @@ void Ink::_topologize(const size_t v) {
 
 void Ink::_build_sfxt() {
 	// NOTE: super source and target are implicitly generated
-	// add a super target and super source
-	// connect super source to all in-degree=0 vertices
-	// connect super targe to all out-degree=0 vertices
+	// add a super target
+	// connect super target to all out-degree=0 vertices
 	auto& tgt = insert_vertex("_T");
-
+	_sfxt.T = tgt.id;
+	
 	for (auto& v : _vptrs) {
-		// NOTE: do we need a super src here?
-		//if (v != nullptr && v->is_src()) {
-		//	_insert_edge(src, *v, std::move(ws_src));	
-		//}
-
-		if (v != nullptr && v->is_dst() && (v->id != tgt.id)) {
-			std::vector<std::optional<float>> ws_tgt = {
+		if (v != nullptr && v->is_dst() && v->id != tgt.id) {
+			std::vector<std::optional<float>> ws = {
 				0, 0, 0, 0, 0, 0, 0, 0
 			};
-			_insert_edge(*v, tgt, std::move(ws_tgt));
+			_insert_edge(*v, tgt, std::move(ws));
 		}
 	}
 
+
+	auto& src = insert_vertex("_S");
+	_sfxt.S = src.id;
 	// resize suffix tree storages
-	_sfxt.visited.resize(_vptrs.size(), false);
-	_sfxt.dists.resize(_vptrs.size(), std::numeric_limits<float>::max());
-	_sfxt.dists[tgt.id] = 0.0;
-	_sfxt.parents.resize(_vptrs.size(), -1);
-	_sfxt.links.resize(_vptrs.size(), -1);
-	_sfxt.T = tgt.id;
+	size_t sz = std::max(_sfxt.S, _sfxt.T) + 1;
+	_sfxt.visited.resize(sz, false);
+	_sfxt.dists.resize(sz, std::numeric_limits<float>::max());
+	_sfxt.dists[_sfxt.T] = 0.0;
+	_sfxt.parents.resize(sz, -1);
+	_sfxt.links.resize(sz, -1);
 	
 	assert(_sfxt.topo_order.empty());
 	// generate topological order of vertices
@@ -504,6 +495,7 @@ void Ink::_build_sfxt() {
 	}	
 
 }
+
 
 
 Ink::PfxtNode::PfxtNode(
@@ -556,6 +548,9 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 	// and return a poiner to this node object
 	return paths.back().get();	
 }
+
+
+
 
 
 } // end of namespace ink 

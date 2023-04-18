@@ -1,14 +1,11 @@
 #pragma once
 #include <ot/timer/timer.hpp>
-#include <iostream>
-#include <string>
-#include <algorithm>
 
 namespace ink {
 
 struct Vert;
 struct Edge;
-class Sfxt;
+struct Sfxt;
 class Ink;
 
 
@@ -167,6 +164,7 @@ private:
 
 	};
 
+
 	/**
 	@brief Prefix Tree Node
 	*/
@@ -197,7 +195,9 @@ private:
 		Pfxt(Pfxt&& other);
 		Pfxt& operator = (Pfxt&& other) = delete;
 
-
+		inline size_t num_nodes() const {
+			return nodes.size();
+		} 
 		
 		void push(
 			float w,
@@ -216,11 +216,11 @@ private:
 		// path
 		std::vector<std::unique_ptr<PfxtNode>> paths;
 		
-		// nodes (to use as a heap)
+		// nodes (to use as a min heap)
 		std::vector<std::unique_ptr<PfxtNode>> nodes;
-
-
 	};
+
+
 
 	/**
 	@brief Index Generator
@@ -287,20 +287,6 @@ private:
 	IdxGen _idxgen_edge;
 };
 
-
-// NOTE: concept of free list
-//  0 , 1,  2,  3,  4
-// v1, v2, v3, v4, v5
-//
-// remove v3  => vfree.push-back 2
-
-//  0 , 1,  2,   3,  4
-// v1, v2, nil, v4, v5
-//
-// insert v6 => v6.id = vfree.pop_back() if any, or vertices.size()
-//
-//  0 , 1,  2,   3,  4
-// v1, v2, v6,  v4, v5
 
 } // end of namespace ink
 
