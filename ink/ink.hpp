@@ -7,7 +7,9 @@ struct Vert;
 struct Edge;
 struct Sfxt;
 class Ink;
-
+struct Point;
+struct Path;
+class PathHeap;
 
 /**
 @brief Vertex
@@ -116,7 +118,7 @@ public:
 
 	void remove_edge(const std::string& from, const std::string& to);
 
-	void report(const size_t k);
+	void report(size_t K);
 
 	void dump(std::ostream& os) const;
 
@@ -135,7 +137,19 @@ private:
 	@brief Suffix Tree
 	*/
 	struct Sfxt {
-		Sfxt() = default;
+		Sfxt(size_t S, size_t T);
+
+		inline bool relax(
+			size_t u, 
+			size_t v, 
+			std::optional<size_t> e, 
+			float d);
+		
+		/**
+		@brief returns the distance from super source to 
+		suffix tree root
+		*/
+		inline std::optional<float> dist() const;
 
 		// super source
 		size_t S;
@@ -150,16 +164,16 @@ private:
 		std::vector<size_t> topo_order; 
 
 		// to record if visited in topological sort
-		std::vector<bool> visited;
+		std::vector<std::optional<bool>> visited;
 
 		// distances 
-		std::vector<float> dists;
+		std::vector<std::optional<float>> dists;
 		
 		// parents
-		std::vector<size_t> parents;
+		std::vector<std::optional<size_t>> parents;
 	
 		// links (edge ids)
-		std::vector<size_t> links;
+		std::vector<std::optional<size_t>> links;
 
 
 	};
@@ -252,10 +266,29 @@ private:
 	
 	void _read_graph(std::istream& is);
 	
-	void _topologize(const size_t root);
+	void _topologize(Sfxt& sfxt, size_t root) const;
 
-	void _build_sfxt();
+	void _build_sfxt(Sfxt& sfxt) const;
 	
+
+
+	/**
+	@brief Find the suffix tree rooted at the vertex
+	*/
+	Sfxt _sfxt_cache(const Point& p) const;
+
+	/**
+	@brief Spur from the path. Scan the current critical path
+	and spur along the path to generate other candidates
+	*/
+	void _spur(Point& endpt, size_t K, PathHeap& heap) const;
+	
+	/**
+	@brief Construct a prefixt tree from a given suffix tree
+	*/
+	Pfxt _pfxt_cache(const Sfxt& sfxt) const;
+
+
 	Edge& _insert_edge(
 		Vert& from, 
 		Vert& to,
@@ -274,8 +307,6 @@ private:
 	
 	std::vector<Edge*> _eptrs;
 
-	// suffix tree
-	Sfxt _sfxt;
 
 	// index generator : vertices
 	// NOTE: free list is defined in this object
@@ -286,6 +317,81 @@ private:
 	// NOTE: free list is defined in this object
 	IdxGen _idxgen_edge;
 };
+
+/**
+@brief Point Struct
+*/
+struct Point {
+	friend class Ink;
+	Point(const Vert& v, float d);
+	
+	const Vert& vert;
+	float dist;
+};
+
+
+/**
+@brief Path Struct
+*/
+struct Path : std::list<Point> {
+	Path(float w, const Point* endpt);
+	Path(Path&&) = default;
+	Path& operator = (Path&&) = default;
+
+	Path(const Path&) = delete;
+	Path& operator = (const Path&) = delete;
+
+	float weight{std::numeric_limits<float>::quiet_NaN()};
+
+	const Point* endpoint{nullptr};
+};
+
+/**
+@brief Path Heap Class
+A max heap to maintain top-k critical paths
+*/
+class PathHeap {
+	friend class Ink;
+	
+	struct PathComp {
+		bool operator () (
+			const std::unique_ptr<Path>& a, 
+			const std::unique_ptr<Path>& b) const {
+			return a->weight < b->weight;
+		}
+	};
+
+public:
+	PathHeap() = default;
+	PathHeap(PathHeap&&) = default;
+	PathHeap& operator = (PathHeap&&) = default;
+
+	PathHeap(const PathHeap&) = delete;
+	PathHeap& operator = (const PathHeap&) = delete;
+
+	inline size_t size() const;
+	inline bool empty() const;
+
+	std::vector<Path> extract();
+
+	void push(std::unique_ptr<Path> path);
+	void pop();
+	void merge_and_fit(PathHeap&& rhs, size_t K);
+	void fit(size_t K);
+	void heapify();
+
+	Path* top() const;
+
+	std::string dump() const;
+
+private:
+	PathComp _comp;
+	std::vector<std::unique_ptr<Path>> _paths;
+
+};
+
+
+
 
 
 } // end of namespace ink

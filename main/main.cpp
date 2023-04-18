@@ -12,12 +12,8 @@ int main(int argc, char* argv[]) {
 
 	ink.report(5);
 
+	
+	//ink.dump(std::cout);
 
-	ink.dump(std::cout);
-
-	// TODO: N vertices start from 0 to N-1
-	// super source N, super target N+1
-	// a total of N+2 vertices
-	// NOTE: super src/dst are used implicitly
 	return 0;
 }

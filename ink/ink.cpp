@@ -4,6 +4,9 @@
 namespace ink {
 
 
+// ------------------------
+// Vertex Implementations
+// ------------------------
 bool Vert::is_src() const {
 	// no fanins
 	if (num_fanins() == 0) {
@@ -61,10 +64,17 @@ void Vert::remove_fanout(Edge& e) {
 	e.fanout_satellite.reset();
 }
 
+// ------------------------
+// Edge Implementations
+// ------------------------
 std::string Edge::name() const {
 	return from.name + "->" + to.name;
 }
 
+
+// ------------------------
+// Ink Implementations
+// ------------------------
 
 void Ink::read_graph(const std::string& file) {
 	std::ifstream ifs;
@@ -240,10 +250,8 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 }
 
 
-void Ink::report(const size_t k) {
-	_build_sfxt();
+void Ink::report(size_t K) {
 	
-
 }
 
 void Ink::dump(std::ostream& os) const {
@@ -308,21 +316,6 @@ void Ink::dump(std::ostream& os) const {
 			os << "ptr to null\n";
 		}
 	}
-
-	os << "------------------\n";
-	os << "Suffix Tree:\n";
-	os << "------------------\n";
-	for (const auto& v : _sfxt.topo_order) {
-		auto link_name = (_sfxt.links[v] != -1) ? 
-			_eptrs[_sfxt.links[v]]->name() :
-			"n/a";
-
-		os << _vptrs[v]->name << " ... ";
-		os << "link=" << link_name << " ... ";
-		os << "dist=" << _sfxt.dists[v];
-		os << '\n';
-	}
-
 
 }
 
@@ -419,85 +412,158 @@ void Ink::_remove_edge(Edge& e) {
 	_edges.erase(*e.satellite);
 }
 
-void Ink::_topologize(const size_t v) {	
+void Ink::_topologize(Sfxt& sfxt, size_t v) const {	
 	// set visited to true
-	_sfxt.visited[v] = true;
+	sfxt.visited[v] = true;
 
 	auto& vert = _vptrs[v];
 	
+
 	// base case: stop at path source
 	if (!vert->is_src()) {
 		for (auto& e : vert->fanin) {
-			if (!_sfxt.visited[e->from.id]) {
-				_topologize(e->from.id);
+			if (!sfxt.visited[e->from.id]) {
+				_topologize(sfxt, e->from.id);
 			}			
 		}
 	}
 	
-	_sfxt.topo_order.push_back(v);
+	sfxt.topo_order.push_back(v);
 }
 
-void Ink::_build_sfxt() {
+void Ink::_build_sfxt(Sfxt& sfxt) const {
 	// NOTE: super source and target are implicitly generated
-	// add a super target
-	// connect super target to all out-degree=0 vertices
-	auto& tgt = insert_vertex("_T");
-	_sfxt.T = tgt.id;
 	
-	for (auto& v : _vptrs) {
-		if (v != nullptr && v->is_dst() && v->id != tgt.id) {
-			std::vector<std::optional<float>> ws = {
-				0, 0, 0, 0, 0, 0, 0, 0
-			};
-			_insert_edge(*v, tgt, std::move(ws));
-		}
-	}
-
-
-	auto& src = insert_vertex("_S");
-	_sfxt.S = src.id;
-	// resize suffix tree storages
-	size_t sz = std::max(_sfxt.S, _sfxt.T) + 1;
-	_sfxt.visited.resize(sz, false);
-	_sfxt.dists.resize(sz, std::numeric_limits<float>::max());
-	_sfxt.dists[_sfxt.T] = 0.0;
-	_sfxt.parents.resize(sz, -1);
-	_sfxt.links.resize(sz, -1);
-	
-	assert(_sfxt.topo_order.empty());
+	assert(sfxt.topo_order.empty());
 	// generate topological order of vertices
-	_topologize(_sfxt.T);
+	_topologize(sfxt, sfxt.T);
 
+	assert(!sfxt.topo_order.empty());
 
 	/// visit the topological order in reverse
-	for (auto itr = _sfxt.topo_order.rbegin(); 
-		itr != _sfxt.topo_order.rend(); 
+	for (auto itr = sfxt.topo_order.rbegin(); 
+		itr != sfxt.topo_order.rend(); 
 		++itr) {
 		auto v = *itr;
 		auto pin = _vptrs[v]; 
 		assert(pin != nullptr);	
 
 		if (pin->is_src()) {
-			_sfxt.srcs.try_emplace(v, std::nullopt);
+			sfxt.srcs.try_emplace(v, std::nullopt);
 			continue;
 		}
 
 		for (auto e : pin->fanin) {
 			// relaxation
-			float d = _sfxt.dists[v] + e->min_valid_weight();
-			if (d < _sfxt.dists[e->from.id]) {
-				_sfxt.dists[e->from.id] = d;
-				_sfxt.parents[e->from.id] = v;
-				_sfxt.links[e->from.id] = e->id;
-			}
+			sfxt.relax(e->from.id, v, e->id, e->min_valid_weight());	
+		
 		}
 
 	}	
 
 }
 
+Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
+	// NOTE: OpenTimer: same pin has 2 different configs
+	// so it encodes the super src to be 2*[num_v]
+	// We can simply use num_v?
+	auto S = _vptrs.size();
+	auto to = p.vert.id;
+
+	Sfxt sfxt(S, to);
+
+	assert(!sfxt.dists[to]);
+	
+	// NOTE: is it correct to initialize root dist to 0?
+	sfxt.dists[to] = 0.0;
+	
+	// calculate shortest path tree with dynamic programming
+	_build_sfxt(sfxt);
+
+	// relax from super source to sources
+	for (auto& [src, w] : sfxt.srcs) {
+		sfxt.relax(S, src, std::nullopt, *w);
+	}
+
+	assert(sfxt.dists[S]);
+	
+	return sfxt;
+}
 
 
+Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
+	Pfxt pfxt(sfxt);
+	assert(sfxt.dist());
+
+	// generate path prefix from each source vertex
+	for (const auto& [src, w] : sfxt.srcs) {
+		if (!w) {
+			continue;
+		}
+		
+		auto src_w = *sfxt.dists[src] + *w;
+		pfxt.push(src_w, sfxt.S, src, nullptr, nullptr);
+	}
+
+	return pfxt;
+}
+
+
+void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
+	auto sfxt = _sfxt_cache(endpt);
+	auto pfxt = _pfxt_cache(sfxt);
+
+	for (size_t k = 0; k < K; k++) {
+		auto node = pfxt.pop();
+
+		std::cout << node->edge->name() << "\n";
+	}
+
+} 
+
+// ------------------------
+// Suffix Tree Implementations
+// ------------------------
+
+// NOTE:
+// OpenTimer does a resize_to_fit, why not simply resize(N)?
+
+Ink::Sfxt::Sfxt(size_t S, size_t T) :
+	S{S},
+	T{T}
+{
+	// resize suffix tree storages
+	size_t sz = std::max(S, T) + 1;
+	visited.resize(sz);
+	dists.resize(sz);
+	parents.resize(sz);
+	links.resize(sz);
+}
+
+inline bool Ink::Sfxt::relax(
+	size_t u, 
+	size_t v, 
+	std::optional<size_t> e, 
+	float d) {
+	
+	if (!dists[u] || *dists[v] + d < *dists[u]) {
+		dists[u] = *dists[v] + d;
+		parents[u] = v;
+		links[u] = v; 
+		return true;
+	}
+	return false;
+}
+
+
+inline std::optional<float> Ink::Sfxt::dist() const {
+	return dists[S];
+}
+
+
+// ------------------------
+// Prefix Tree Implementations
+// ------------------------
 Ink::PfxtNode::PfxtNode(
 	float w, 
 	size_t f, 
@@ -550,7 +616,62 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 }
 
 
+// ------------------------
+// Point Implementations
+// ------------------------
+Point::Point(const Vert& v, float d) :
+	vert{v},
+	dist{d}
+{
+}
 
+// ------------------------
+// Path Implementations
+// ------------------------
+Path::Path(float w, const Point* endpt) :
+	weight{w},
+	endpoint{endpt}	
+{
+}
+
+// ------------------------
+// PathHeap Implementations
+// ------------------------
+inline size_t PathHeap::size() const {
+	return _paths.size();
+}
+
+inline bool PathHeap::empty() const {
+	return _paths.empty();
+}
+
+void PathHeap::push(std::unique_ptr<Path> path) {
+	_paths.push_back(std::move(path));
+	std::push_heap(_paths.begin(), _paths.end(), _comp);
+}
+
+void PathHeap::pop() {
+	if (_paths.empty()) {
+		return;
+	}
+
+	std::pop_heap(_paths.begin(), _paths.end(), _comp);
+	_paths.pop_back();
+}
+
+Path* PathHeap::top() const {
+	return _paths.empty() ? nullptr : _paths.front().get();
+}
+
+void PathHeap::heapify() {
+	std::make_heap(_paths.begin(), _paths.end(), _comp);
+} 
+
+void PathHeap::fit(size_t K) {
+	while (_paths.size() > K) {
+		pop();
+	}
+}
 
 
 } // end of namespace ink 
