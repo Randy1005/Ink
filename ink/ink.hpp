@@ -169,8 +169,8 @@ private:
 		// distances 
 		std::vector<std::optional<float>> dists;
 		
-		// parents
-		std::vector<std::optional<size_t>> parents;
+		// successors
+		std::vector<std::optional<size_t>> successors;
 	
 		// links (edge ids)
 		std::vector<std::optional<size_t>> links;
@@ -221,6 +221,8 @@ private:
 			const PfxtNode* p);		
 		
 		PfxtNode* pop();
+		
+		PfxtNode* top() const;	
 
 		const Sfxt& sfxt;
 		
@@ -288,6 +290,16 @@ private:
 	*/
 	Pfxt _pfxt_cache(const Sfxt& sfxt) const;
 
+
+	/**
+	@brief recover the complete path from a given prefix tree node
+	w.r.t a suffix tree
+	*/
+	void _recover_path(
+		Path& path, 
+		const Sfxt& sfxt,
+		const PfxtNode* pfxt_node,
+		size_t v);
 
 	Edge& _insert_edge(
 		Vert& from, 

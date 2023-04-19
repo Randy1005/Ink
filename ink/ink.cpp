@@ -176,10 +176,11 @@ Edge& Ink::insert_edge(
 		w0, w1, w2, w3, w4, w5, w6, w7
 	};
 
-
+	
 	Vert& v_from = insert_vertex(from);
 	Vert& v_to = insert_vertex(to);
-
+	
+	
 
 	// NOTE: if I use std::pair as key
 	// the complier requires a custom hash function
@@ -251,6 +252,12 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 
 
 void Ink::report(size_t K) {
+
+	PathHeap heap;
+	auto& v = _name2v["out"];
+	Point p(v, 0.0);
+
+	_spur(p, K, heap);
 	
 }
 
@@ -473,7 +480,7 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 	Sfxt sfxt(S, to);
 
 	assert(!sfxt.dists[to]);
-	
+
 	// NOTE: is it correct to initialize root dist to 0?
 	sfxt.dists[to] = 0.0;
 	
@@ -482,10 +489,14 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 
 	// relax from super source to sources
 	for (auto& [src, w] : sfxt.srcs) {
+
+		// NOTE: question ...
+		// distance from S to srcs should be 0?
+		//																v
+		w = 0.0;
 		sfxt.relax(S, src, std::nullopt, *w);
 	}
 
-	assert(sfxt.dists[S]);
 	
 	return sfxt;
 }
@@ -500,11 +511,10 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 		if (!w) {
 			continue;
 		}
-		
+	
 		auto src_w = *sfxt.dists[src] + *w;
 		pfxt.push(src_w, sfxt.S, src, nullptr, nullptr);
 	}
-
 	return pfxt;
 }
 
@@ -512,14 +522,69 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 	auto sfxt = _sfxt_cache(endpt);
 	auto pfxt = _pfxt_cache(sfxt);
+	
 
 	for (size_t k = 0; k < K; k++) {
 		auto node = pfxt.pop();
+		
+		// no more paths to generate
+		if (node == nullptr) {
+			break;
+		}		
 
-		std::cout << node->edge->name() << "\n";
+		// NOTE: question ...
+		// why do we stop when max-weight path in heap 
+		// is smaller than pfxt node weight?
+		if (heap.size() >= K && heap.top()->weight <= node->weight) {
+			break;
+		}
+
+		// push the path to the path heap
+		auto path = std::make_unique<Path>(node->weight, &endpt);
+
+		// recover the complete path
+
+		
 	}
 
 } 
+
+void Ink::_recover_path(
+	Path& path,
+	const Sfxt& sfxt,
+	const PfxtNode* pfxt_node,
+	size_t v) {
+
+	if (pfxt_node == nullptr) {
+		return;
+	}
+
+	// recurse until we reach the source pfxt node
+	_recover_path(path, sfxt, pfxt_node->parent, pfxt_node->from);
+
+	auto u = pfxt_node->to;
+	auto u_vptr = _vptrs[u];
+
+	// if we're at the sfxt source
+	// construct a point with distance 0.0
+	if (pfxt_node->from == sfxt.S) {
+		path.emplace_back(*u_vptr, 0.0);
+	}
+	// detour from non-sfxt-source nodes
+	else {
+		assert(!path.empty());
+
+		auto d = path.back().dist + pfxt_node->edge->min_valid_weight();
+		path.emplace_back(*u_vptr, d);
+	}
+	
+	// TODO: iterate to end point 
+	while (u != v) {
+	
+	}
+
+
+}	
 
 // ------------------------
 // Suffix Tree Implementations
@@ -536,7 +601,7 @@ Ink::Sfxt::Sfxt(size_t S, size_t T) :
 	size_t sz = std::max(S, T) + 1;
 	visited.resize(sz);
 	dists.resize(sz);
-	parents.resize(sz);
+	successors.resize(sz);
 	links.resize(sz);
 }
 
@@ -548,8 +613,8 @@ inline bool Ink::Sfxt::relax(
 	
 	if (!dists[u] || *dists[v] + d < *dists[u]) {
 		dists[u] = *dists[v] + d;
-		parents[u] = v;
-		links[u] = v; 
+		successors[u] = v;
+		links[u] = e; 
 		return true;
 	}
 	return false;
@@ -603,6 +668,10 @@ void Ink::Pfxt::push(
 
 
 Ink::PfxtNode* Ink::Pfxt::pop() {
+	if (nodes.empty()) {
+		return nullptr;
+	}
+	
 	// swap [0] and [N-1], and heapify [first, N-1)
 	std::pop_heap(nodes.begin(), nodes.end(), comp);
 
@@ -613,6 +682,10 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 
 	// and return a poiner to this node object
 	return paths.back().get();	
+}
+
+Ink::PfxtNode* Ink::Pfxt::top() const {
+	return nodes.empty() ? nullptr : nodes.front().get();
 }
 
 
@@ -630,7 +703,7 @@ Point::Point(const Vert& v, float d) :
 // ------------------------
 Path::Path(float w, const Point* endpt) :
 	weight{w},
-	endpoint{endpt}	
+	endpoint{endpt}
 {
 }
 
