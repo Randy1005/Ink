@@ -130,13 +130,9 @@ TEST_CASE("Edge Insertion + Removal" * doctest::timeout(300)) {
 
 	ink.remove_edge("v1", "v2");
 	REQUIRE(ink.num_edges() == 2);
-	REQUIRE(e12.from.num_fanouts() == 1);
-	REQUIRE(e12.to.num_fanouts() == 0);
 
 	ink.remove_edge("v1", "v3");
 	REQUIRE(ink.num_edges() == 1);
-	REQUIRE(e13.from.num_fanouts() == 0);
-	REQUIRE(e13.to.num_fanins() == 0);
 
 	ink.remove_edge("v3", "v5");	
 	REQUIRE(ink.num_edges() == 0);

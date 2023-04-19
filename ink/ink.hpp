@@ -174,8 +174,6 @@ private:
 	
 		// links (edge ids)
 		std::vector<std::optional<size_t>> links;
-
-
 	};
 
 
@@ -218,7 +216,7 @@ private:
 			size_t f,
 			size_t t,
 			const Edge* e,
-			const PfxtNode* p);		
+			const PfxtNode* p);	
 		
 		PfxtNode* pop();
 		
@@ -253,7 +251,6 @@ private:
 			auto idx = freelist.back();
 			freelist.pop_back();
 			return idx;
-		
 		}
 
 		inline void recycle(size_t free_id) {
@@ -299,7 +296,7 @@ private:
 		Path& path, 
 		const Sfxt& sfxt,
 		const PfxtNode* pfxt_node,
-		size_t v);
+		size_t v) const;
 
 	Edge& _insert_edge(
 		Vert& from, 
@@ -318,7 +315,6 @@ private:
 	std::list<Edge> _edges;
 	
 	std::vector<Edge*> _eptrs;
-
 
 	// index generator : vertices
 	// NOTE: free list is defined in this object
@@ -352,6 +348,8 @@ struct Path : std::list<Point> {
 
 	Path(const Path&) = delete;
 	Path& operator = (const Path&) = delete;
+
+	void dump(std::ostream& os) const;
 
 	float weight{std::numeric_limits<float>::quiet_NaN()};
 

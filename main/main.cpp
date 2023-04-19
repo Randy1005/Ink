@@ -10,10 +10,7 @@ int main(int argc, char* argv[]) {
 	ink::Ink ink;
 	ink.read_graph(argv[1]);
 
-	ink.report(1);
-
-	
-	//ink.dump(std::cout);
+	ink.report(5);
 
 	return 0;
 }

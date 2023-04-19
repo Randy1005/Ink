@@ -141,7 +141,6 @@ void Ink::remove_vertex(const std::string& name) {
 		e->from.remove_fanout(*e);
 		assert(e->satellite);
 		_edges.erase(*e->satellite);
-		e->satellite.reset();
 	}
 	for (auto& e : v.fanout) {
 		_eptrs[e->id] = nullptr;
@@ -149,7 +148,6 @@ void Ink::remove_vertex(const std::string& name) {
 		e->to.remove_fanin(*e);
 		assert(e->satellite);
 		_edges.erase(*e->satellite);
-		e->satellite.reset();
 	}
 
 
@@ -258,7 +256,6 @@ void Ink::report(size_t K) {
 	Point p(v, 0.0);
 
 	_spur(p, K, heap);
-	
 }
 
 void Ink::dump(std::ostream& os) const {
@@ -422,10 +419,7 @@ void Ink::_remove_edge(Edge& e) {
 void Ink::_topologize(Sfxt& sfxt, size_t v) const {	
 	// set visited to true
 	sfxt.visited[v] = true;
-
 	auto& vert = _vptrs[v];
-	
-
 	// base case: stop at path source
 	if (!vert->is_src()) {
 		for (auto& e : vert->fanin) {
@@ -481,7 +475,8 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 
 	assert(!sfxt.dists[to]);
 
-	// NOTE: is it correct to initialize root dist to 0?
+	// NOTE: question ... 
+	// is it correct to initialize root dist to 0?
 	sfxt.dists[to] = 0.0;
 	
 	// calculate shortest path tree with dynamic programming
@@ -539,12 +534,16 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 			break;
 		}
 
-		// push the path to the path heap
-		auto path = std::make_unique<Path>(node->weight, &endpt);
-
 		// recover the complete path
+		auto path = std::make_unique<Path>(node->weight, &endpt);
+		_recover_path(*path, sfxt, node, sfxt.T);
 
-		
+		path->dump(std::cout);
+
+		heap.push(std::move(path));
+		heap.fit(K);
+
+		// TODO: expand search space
 	}
 
 } 
@@ -553,7 +552,7 @@ void Ink::_recover_path(
 	Path& path,
 	const Sfxt& sfxt,
 	const PfxtNode* pfxt_node,
-	size_t v) {
+	size_t v) const {
 
 	if (pfxt_node == nullptr) {
 		return;
@@ -578,9 +577,15 @@ void Ink::_recover_path(
 		path.emplace_back(*u_vptr, d);
 	}
 	
-	// TODO: iterate to end point 
 	while (u != v) {
-	
+		assert(sfxt.links[u]);
+		auto edge = _eptrs[*sfxt.links[u]];
+		// move to the successor of u
+		u = *sfxt.successors[u];
+		
+		u_vptr = _vptrs[u];
+		auto d = path.back().dist + edge->min_valid_weight();
+		path.emplace_back(*u_vptr, d);
 	}
 
 
@@ -705,6 +710,24 @@ Path::Path(float w, const Point* endpt) :
 	weight{w},
 	endpoint{endpt}
 {
+}
+
+void Path::dump(std::ostream& os) const {
+	if (empty()) {
+		os << "empty path\n";
+	}
+
+	// dump the header
+	os << "Startpoint:  " << front().vert.name << '\n';
+	os << "Endpoint:    " << back().vert.name << '\n';
+	os << "Path Weight: " << weight << '\n';
+
+	// dump the path
+	os << "Path:\n";
+	for (const auto& p : *this) {
+		os << "Vert name: " << p.vert.name << ", Dist: " << p.dist << '\n';
+	}
+
 }
 
 // ------------------------
