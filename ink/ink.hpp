@@ -1,5 +1,6 @@
 #pragma once
 #include <ot/timer/timer.hpp>
+#define NUM_WEIGHTS 8
 
 namespace ink {
 
@@ -66,15 +67,20 @@ struct Edge {
 
 	std::string name() const;
 
-	// TODO: is this the right weight to use? 
-	inline float min_valid_weight() const {
+	/**
+	@brief returns the index of the minimum weight
+	(excluding the std::nullopts)
+	*/
+	inline auto min_valid_weight() const {
 		float v = std::numeric_limits<float>::max();
-		for (auto w : weights) {
-			if (w.has_value() && w.value() < v) {
-				v = w.value();
+		size_t min_idx = weights.size();
+		for (size_t i = 0; i < weights.size(); i++) {
+			if (weights[i] && *weights[i] < v) {
+				min_idx = i;
+				v = *weights[i];
 			}
 		}
-		return v;
+		return min_idx;
 	}
 
 
@@ -270,7 +276,6 @@ private:
 	void _build_sfxt(Sfxt& sfxt) const;
 	
 
-
 	/**
 	@brief Find the suffix tree rooted at the vertex
 	*/
@@ -281,7 +286,13 @@ private:
 	and spur along the path to generate other candidates
 	*/
 	void _spur(Point& endpt, size_t K, PathHeap& heap) const;
-	
+
+
+	/**
+	@brief Spur along the path given a prefix node
+	*/
+	void _spur(Pfxt& pfxt, const PfxtNode& pfx) const;
+
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
 	*/
@@ -298,11 +309,47 @@ private:
 		const PfxtNode* pfxt_node,
 		size_t v) const;
 
+	void _recover_path(Path& path, const Sfxt& sfxt) const;
+
 	Edge& _insert_edge(
 		Vert& from, 
 		Vert& to,
 		std::vector<std::optional<float>>&& ws);
+	
 	void _remove_edge(Edge& e);
+	
+
+
+	/**
+	@brief encode an edge with different weight selections
+	into distinct ids, rule as follows:
+		edge id = n, weight index = k
+		encoded id = k * num_edges + n
+
+		e.g. num_edges = 10
+		edge id = 7, weight index = 0
+		encode_edge = 0 * 10 + 7 = 7
+
+		edge id = 7, weight index = 2
+		encode_edge = 2 * 10 + 7 = 27
+
+		... and so on
+
+		P.S. 
+		edges with only std::nullopt weights are also encoded
+		so N edges would need 9*N ids to encode
+	*/
+	inline auto _encode_edge(const Edge& e, size_t w_sel) const {
+		return w_sel * _eptrs.size() + e.id;  	
+	}
+
+	/**
+	@brief returns a tuple {ptr_to_edge, weight_idx} 
+	*/
+	inline auto _decode_edge(size_t idx) const {
+		return std::make_tuple(_eptrs[idx % _eptrs.size()], idx / _eptrs.size());
+	}
+
 
 	// unordered map: name to vertex object
 	// NOTE: this is the owner storage
@@ -392,7 +439,7 @@ public:
 
 	Path* top() const;
 
-	std::string dump() const;
+	void dump(std::ostream& os) const;
 
 private:
 	PathComp _comp;

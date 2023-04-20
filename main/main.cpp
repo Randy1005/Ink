@@ -11,6 +11,9 @@ int main(int argc, char* argv[]) {
 	ink.read_graph(argv[1]);
 
 	ink.report(5);
+	
+	std::ofstream ofs("simple.dmp");
+	ink.dump(ofs);
 
 	return 0;
 }
