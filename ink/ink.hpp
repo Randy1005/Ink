@@ -124,7 +124,8 @@ public:
 
 	void remove_edge(const std::string& from, const std::string& to);
 
-	void report(size_t K);
+	std::vector<Path> report(size_t K);
+
 
 	void dump(std::ostream& os) const;
 
@@ -187,13 +188,20 @@ private:
 	@brief Prefix Tree Node
 	*/
 	struct PfxtNode {
-		PfxtNode(float w, size_t f, size_t t, const Edge* e, const PfxtNode* p);
+		PfxtNode(
+			float c, 
+			size_t f, 
+			size_t t, 
+			const Edge* e, 
+			const PfxtNode* p,
+			std::optional<size_t> encoded_e);
 
-		float weight;
+		float detour_cost;
 		size_t from;
 		size_t to;
 		const Edge* edge{nullptr};
-		const PfxtNode* parent{nullptr}; 
+		const PfxtNode* parent{nullptr};
+		std::optional<size_t> encoded_edge;
 	};
 
 
@@ -205,7 +213,7 @@ private:
 			bool operator() (
 				const std::unique_ptr<PfxtNode>& a,
 				const std::unique_ptr<PfxtNode>& b) const {
-				return a->weight > b->weight;
+				return a->detour_cost > b->detour_cost;
 			}	
 		};
 
@@ -222,7 +230,8 @@ private:
 			size_t f,
 			size_t t,
 			const Edge* e,
-			const PfxtNode* p);	
+			const PfxtNode* p,
+			std::optional<size_t> encoded_e);	
 		
 		PfxtNode* pop();
 		
@@ -351,6 +360,8 @@ private:
 	}
 
 
+	std::vector<Point> _endpoints;
+
 	// unordered map: name to vertex object
 	// NOTE: this is the owner storage
 	// anything that need access to vertices would store a pointer to it
@@ -379,7 +390,8 @@ private:
 struct Point {
 	friend class Ink;
 	Point(const Vert& v, float d);
-	
+	Point(Point&&) = default;
+
 	const Vert& vert;
 	float dist;
 };
@@ -429,8 +441,6 @@ public:
 	inline size_t size() const;
 	inline bool empty() const;
 
-	std::vector<Path> extract();
-
 	void push(std::unique_ptr<Path> path);
 	void pop();
 	void merge_and_fit(PathHeap&& rhs, size_t K);
@@ -439,6 +449,10 @@ public:
 
 	Path* top() const;
 
+	/**
+	@brief sort and extract the paths in ascending order
+	*/
+	std::vector<Path> extract();
 	void dump(std::ostream& os) const;
 
 private:

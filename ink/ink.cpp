@@ -249,16 +249,23 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 }
 
 
-void Ink::report(size_t K) {
+std::vector<Path> Ink::report(size_t K) {
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
 
 	PathHeap heap;
-	auto& v = _name2v["u4:Y"];
-	Point p(v, 0.0);
+	for (auto& pt : _endpoints) {
+		_spur(pt, K, heap);
+	}
 
-	_spur(p, K, heap);
-
-
+	return heap.extract();
 }
+
+
 
 void Ink::dump(std::ostream& os) const {
 	os << num_verts() << " Vertices:\n";
@@ -443,7 +450,7 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 
 	assert(!sfxt.topo_order.empty());
 
-	/// visit the topological order in reverse
+	// visit the topological order in reverse
 	for (auto itr = sfxt.topo_order.rbegin(); 
 		itr != sfxt.topo_order.rend(); 
 		++itr) {
@@ -459,14 +466,11 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 		for (auto e : v_ptr->fanin) {
 			auto w_sel = e->min_valid_weight();
 
-			// if no valid weight, then d is float::MAX
-			// (unwalkable edge)
-			auto d = (w_sel == NUM_WEIGHTS) ? 
-				std::numeric_limits<float>::max() :
-				*e->weights[w_sel];
-
 			// relaxation
-			sfxt.relax(e->from.id, v, _encode_edge(*e, w_sel), d);	
+			if (w_sel != NUM_WEIGHTS) {
+				auto d = *e->weights[w_sel];
+				sfxt.relax(e->from.id, v, _encode_edge(*e, w_sel), d);	
+			}
 		}
 
 	}	
@@ -474,30 +478,25 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 }
 
 Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
-	// NOTE: OpenTimer: same pin has 2 different configs
-	// so it encodes the super src to be 2*[num_v]
-	// We can simply use num_v?
 	auto S = _vptrs.size();
 	auto to = p.vert.id;
+
+	// TODO: if p is not specified, run the overloaded
+	// sfxt_cache with T
+	// _sfxt_cache(no P) means I want the critical analysis of
+	// the entire circuit
 
 	Sfxt sfxt(S, to);
 
 	assert(!sfxt.dists[to]);
-
-	// NOTE: question ... 
-	// is it correct to initialize root dist to 0?
-	sfxt.dists[to] = 0.0;
+	sfxt.dists[to] = 0.0f;
 	
 	// calculate shortest path tree with dynamic programming
 	_build_sfxt(sfxt);
 
 	// relax from super source to sources
 	for (auto& [src, w] : sfxt.srcs) {
-
-		// NOTE: question ...
-		// relax from S to srcs should be 0?
-		//	v
-		w = 0.0;
+		w = 0.0f;
 		sfxt.relax(S, src, std::nullopt, *w);
 	}
 
@@ -512,12 +511,12 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 
 	// generate path prefix from each source vertex
 	for (const auto& [src, w] : sfxt.srcs) {
-		if (!w) {
+		if (!w || !sfxt.dists[src]) {
 			continue;
 		}
-	
-		auto src_w = *sfxt.dists[src] + *w;
-		pfxt.push(src_w, sfxt.S, src, nullptr, nullptr);
+
+		auto s = *sfxt.dists[src] + *w;
+		pfxt.push(s, sfxt.S, src, nullptr, nullptr, std::nullopt);
 	}
 	return pfxt;
 }
@@ -527,7 +526,6 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 	auto sfxt = _sfxt_cache(endpt);
 	auto pfxt = _pfxt_cache(sfxt);
 
-
 	for (size_t k = 0; k < K; k++) {
 		auto node = pfxt.pop();	
 		// no more paths to generate
@@ -535,32 +533,29 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 			break;
 		}		
 
-
 		// NOTE: question ...
 		// why do we stop when max-weight path in heap 
 		// is smaller than pfxt node weight?
 		// NOTE: is it because there's no chance of finding a path with
 		// less weight?
-		if (heap.size() >= K && heap.top()->weight <= node->weight) {
+		if (heap.size() >= K/* && heap.top()->weight <= node->weight */) {
 			break;
 		}
 
 		// recover the complete path
-		auto path = std::make_unique<Path>(node->weight, &endpt);
+		auto path = std::make_unique<Path>(0.0f, &endpt);
 		_recover_path(*path, sfxt, node, sfxt.T);
 		
-		// NOTE: recover without further expand works fine ...
-		// because it's not going to the case where detour is
-		// happening, bug in the detour case of recover path
-		//path->dump(std::cout);
-
+		path->weight = path->back().dist;
 		heap.push(std::move(path));
 		heap.fit(K);
-		heap.dump(std::cout);
 
 		// expand search space
 		_spur(pfxt, *node);
+	
+		
 	}
+
 
 
 } 
@@ -597,13 +592,14 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
 				
 
-				if (auto s = detour_cost + pfx.weight; s < 0.0f) {
-					//std::cout << "pfx weight = " << pfx.weight << '\n';
-					//std::cout << "detour cost = " << detour_cost << '\n';
-					//std::cout << "from = " << _vptrs[u]->name << '\n';
-					//std::cout << "to = " << _vptrs[v]->name << '\n';
-					pfxt.push(s, u, v, edge, &pfx);
-				}
+				auto s = detour_cost + pfx.detour_cost;
+				//if (auto s = detour_cost + pfx.detour_cost; s < 0.0f) {
+				//	std::cout << "pfx.detour_cost = " << pfx.detour_cost << '\n';
+				//	std::cout << "detour cost = " << detour_cost << '\n';
+				//	std::cout << "from = " << _vptrs[u]->name << '\n';
+				//	std::cout << "to = " << _vptrs[v]->name << '\n';
+					pfxt.push(s, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+				//}
 
 			}
 		}
@@ -629,37 +625,34 @@ void Ink::_recover_path(
 	auto u = pfxt_node->to;
 	auto u_vptr = _vptrs[u];
 
-	// if we're at the sfxt source
-	// construct a point with distance 0.0
+	// detour at the sfxt source
 	if (pfxt_node->from == sfxt.S) {
-		path.emplace_back(*u_vptr, 0.0);
+		path.emplace_back(*u_vptr, 0.0f);
 	}
-	// detour from non-sfxt-source nodes
+	// detour at non-sfxt-source nodes (internal deviation)
 	else {
 		assert(!path.empty());
-		// NOTE: question ...
-		// in OpenTimer, pfxt_node's weight is selected according to 
-		// pin u's config, but here we have no config for a vertex
-		// what do we use here?
-		//																	v
-		auto d = 0.0;
+		assert(pfxt_node->encoded_edge);
+		
+		auto [edge, w_sel] = _decode_edge(*pfxt_node->encoded_edge);
+		auto d = path.back().dist + *edge->weights[w_sel];
 		path.emplace_back(*u_vptr, d);
 	}
 	
 	while (u != v) {
+		if (!sfxt.links[u]) {
+			break;
+		}
+		
 		assert(sfxt.links[u]);
 		auto [edge, w_sel] = _decode_edge(*sfxt.links[u]);	
 		// move to the successor of u
 		u = *sfxt.successors[u];
 		u_vptr = _vptrs[u];
-		auto dist = (w_sel == NUM_WEIGHTS) ?
-			std::numeric_limits<float>::max() :
-			*edge->weights[w_sel];
-
-		auto d = path.back().dist + dist;
+		
+		auto d = path.back().dist + *edge->weights[w_sel];
 		path.emplace_back(*u_vptr, d);
 	}
-
 
 }	
 
@@ -708,16 +701,18 @@ inline std::optional<float> Ink::Sfxt::dist() const {
 // Prefix Tree Implementations
 // ------------------------
 Ink::PfxtNode::PfxtNode(
-	float w, 
+	float c, 
 	size_t f, 
 	size_t t, 
 	const Edge* e,
-	const PfxtNode* p) :
-	weight{w},
+	const PfxtNode* p,
+	std::optional<size_t> encoded_e) :
+	detour_cost{c},
 	from{f},
 	to{t},
 	edge{e},
-	parent{p}
+	parent{p},
+	encoded_edge{encoded_e}
 { 
 }
 
@@ -738,8 +733,9 @@ void Ink::Pfxt::push(
 	size_t f,
 	size_t t,
 	const Edge* e,
-	const PfxtNode* p) {
-	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p));
+	const PfxtNode* p,
+	std::optional<size_t> encoded_e) {
+	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p, encoded_e));
 	// heapify nodes
 	std::push_heap(nodes.begin(), nodes.end(), comp);
 }
@@ -794,7 +790,6 @@ void Path::dump(std::ostream& os) const {
 	os << "----------------------------------\n";
 	os << "Startpoint:  " << front().vert.name << '\n';
 	os << "Endpoint:    " << back().vert.name << '\n';
-	os << "Path Weight: " << weight << '\n';
 
 	// dump the path
 	os << "Path:\n";
@@ -844,11 +839,31 @@ void PathHeap::fit(size_t K) {
 	}
 }
 
+std::vector<Path> PathHeap::extract() {
+	std::sort_heap(_paths.begin(), _paths.end(), _comp);
+	std::vector<Path> P;
+	P.reserve(_paths.size());
+
+	std::transform(
+		_paths.begin(), _paths.end(), std::back_inserter(P), 
+		[](auto& ptr) {
+			return std::move(*ptr);		
+		}
+	);
+
+	_paths.clear();
+	return P;
+
+}
+
+
 void PathHeap::dump(std::ostream& os) const {
 	os << "Num Paths = " << _paths.size() << '\n';
 	for (const auto& p : _paths) {
-		os << "Path Weight = " << p->weight << '\n';
+		p->dump(os);
 	}
 }
+
+
 
 } // end of namespace ink 

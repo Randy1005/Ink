@@ -4,6 +4,7 @@ include(${INK_3RD_PARTY_DIR}/doctest/doctest.cmake)
 
 list(APPEND INK_UNITTESTS
   basics
+  sample_graph
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)
