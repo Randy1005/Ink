@@ -1,9 +1,6 @@
 #include "ink.hpp"
 
-
 namespace ink {
-
-
 // ------------------------
 // Vertex Implementations
 // ------------------------
@@ -24,19 +21,6 @@ bool Vert::is_dst() const {
 
 	return false;
 }
-
-/*
-// TODO: understand the following problem
-{
-auto a = std::make_unique<int>(5);
-}
-
-{
-	auto a = std::unique_ptr<int>(new int(5));
-
-}
-
-*/
 
 void Vert::insert_fanin(Edge& e) {
 	e.fanin_satellite = fanin.insert(fanin.end(), &e);
@@ -100,11 +84,12 @@ Vert& Ink::insert_vertex(const std::string& name) {
 	// check if a vertex with this name exists
 	auto itr = _name2v.find(name);
 
-	// TODO: study piece-wise construct
 	if (itr == _name2v.end()) {
 		// store in name to object map
 		auto id = _idxgen_vert.get();
-		auto [iter, success] = _name2v.emplace(name, std::move(Vert{name, id}));
+
+		// NOTE: Vert is a rvalue, compiler moves it by default
+		auto [iter, success] = _name2v.emplace(name, Vert{name, id});
 	
 		// if the index generated goes out of range, resize _vptrs 
 		if (id + 1 > _vptrs.size()) {
@@ -170,20 +155,13 @@ Edge& Ink::insert_edge(
 	const std::optional<float> w6, 
 	const std::optional<float> w7) {
 
-	std::vector<std::optional<float>> ws = {
+	std::array<std::optional<float>, NUM_WEIGHTS> ws = {
 		w0, w1, w2, w3, w4, w5, w6, w7
 	};
-
-	
+		
 	Vert& v_from = insert_vertex(from);
 	Vert& v_to = insert_vertex(to);
 	
-	
-
-	// NOTE: if I use std::pair as key
-	// the complier requires a custom hash function
-	// which I don't think we're able to define a high-quality hash function?
-	// so I simply scan thru the edge vector here
 	auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
 		return (e.from.name == from) && (e.to.name == to);
 	});
@@ -193,9 +171,7 @@ Edge& Ink::insert_edge(
 		// edge exists
 		// update weights
 		for (size_t i = 0; i < itr->weights.size(); i++) {
-			if (!itr->weights[i].has_value()) {
-				itr->weights[i] = ws[i];
-			}
+			itr->weights[i] = ws[i];
 		}
 
 		return (*itr);
@@ -203,6 +179,7 @@ Edge& Ink::insert_edge(
 	else {
 		// edge doesn't exist
 		auto id = _idxgen_edge.get();
+
 		auto& e = _edges.emplace_front(v_from, v_to, id, std::move(ws));
 		
 		// cache the edge's satellite iterator
@@ -385,7 +362,7 @@ void Ink::_read_graph(std::istream& is) {
 Edge& Ink::_insert_edge(
 	Vert& from, 
 	Vert& to, 
-	std::vector<std::optional<float>>&& ws) {
+	std::array<std::optional<float>, 8>&& ws) {
 	
 	auto id = _idxgen_edge.get();
 	auto& e = _edges.emplace_front(from, to, id, std::move(ws));
@@ -443,7 +420,6 @@ void Ink::_topologize(Sfxt& sfxt, size_t v) const {
 
 void Ink::_build_sfxt(Sfxt& sfxt) const {
 	// NOTE: super source and target are implicitly generated
-	
 	assert(sfxt.topo_order.empty());
 	// generate topological order of vertices
 	_topologize(sfxt, sfxt.T);
@@ -575,6 +551,8 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 
 				// skip if the edge goes outside of the suffix tree
 				// which is unreachable
+				// TODO: this case won't exist, if I do a global
+				// suffix tree, (starting from a super target)
 				auto v = edge->to.id;
 				if (!pfxt.sfxt.dists[v]) {
 					continue;
@@ -598,7 +576,7 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 				//	std::cout << "detour cost = " << detour_cost << '\n';
 				//	std::cout << "from = " << _vptrs[u]->name << '\n';
 				//	std::cout << "to = " << _vptrs[v]->name << '\n';
-					pfxt.push(s, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+				pfxt.push(s, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
 				//}
 
 			}

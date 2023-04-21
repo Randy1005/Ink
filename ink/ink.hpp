@@ -45,9 +45,6 @@ struct Vert {
 
 	std::string name;
 	size_t id;
-
-
-	// TODO: best practice - and tell me why the above code is shit
 	std::list<Edge*> fanin;
 	std::list<Edge*> fanout;
 };
@@ -57,7 +54,7 @@ struct Edge {
 	Edge() = default;
 	Edge(Vert& v_from, Vert& v_to, 
 			 const size_t id,
-			 std::vector<std::optional<float>>&& ws) :
+			 std::array<std::optional<float>, 8>&& ws) :
 		from{v_from},
 		to{v_to},
 		id{id},
@@ -73,8 +70,8 @@ struct Edge {
 	*/
 	inline auto min_valid_weight() const {
 		float v = std::numeric_limits<float>::max();
-		size_t min_idx = weights.size();
-		for (size_t i = 0; i < weights.size(); i++) {
+		size_t min_idx = NUM_WEIGHTS;
+		for (size_t i = 0; i < NUM_WEIGHTS; i++) {
 			if (weights[i] && *weights[i] < v) {
 				min_idx = i;
 				v = *weights[i];
@@ -88,13 +85,18 @@ struct Edge {
 	Vert& to;
 	size_t id;
 
+	// satellite iterator indicating the position of this edge in edge list
 	std::optional<std::list<Edge>::iterator> satellite;
+
+	// satellite iterator indicating the position of this edge 
+	// in a vertex's fanout list
 	std::optional<std::list<Edge*>::iterator> fanout_satellite;
+	// satellite iterator indicating the position of this edge 
+	// in a vertex's fanin list
 	std::optional<std::list<Edge*>::iterator> fanin_satellite;
-
-
-	// vector of optional weights
-	std::vector<std::optional<float>> weights;	
+	
+	// static array of optional weights
+	std::array<std::optional<float>, NUM_WEIGHTS> weights;	
 };
 
 
@@ -323,7 +325,7 @@ private:
 	Edge& _insert_edge(
 		Vert& from, 
 		Vert& to,
-		std::vector<std::optional<float>>&& ws);
+		std::array<std::optional<float>, 8>&& ws);
 	
 	void _remove_edge(Edge& e);
 	
@@ -343,10 +345,6 @@ private:
 		encode_edge = 2 * 10 + 7 = 27
 
 		... and so on
-
-		P.S. 
-		edges with only std::nullopt weights are also encoded
-		so N edges would need 9*N ids to encode
 	*/
 	inline auto _encode_edge(const Edge& e, size_t w_sel) const {
 		return w_sel * _eptrs.size() + e.id;  	
@@ -460,9 +458,6 @@ private:
 	std::vector<std::unique_ptr<Path>> _paths;
 
 };
-
-
-
 
 
 } // end of namespace ink
