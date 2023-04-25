@@ -22,7 +22,7 @@ target_link_libraries(ink PUBLIC stdc++fs)
 
 
 
-set_property(TARGET ink PROPERTY CXX_STANDARD 20)
+set_property(TARGET ink PROPERTY CXX_STANDARD 23)
 target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
 
 

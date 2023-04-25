@@ -1,5 +1,7 @@
 #pragma once
 #include <ot/timer/timer.hpp>
+#include <ot/taskflow/algorithm/reduce.hpp>
+
 #define NUM_WEIGHTS 8
 
 namespace ink {
@@ -380,6 +382,10 @@ private:
 	// index generator : edges
 	// NOTE: free list is defined in this object
 	IdxGen _idxgen_edge;
+
+	tf::Taskflow _taskflow;
+	tf::Executor _executor;
+
 };
 
 /**

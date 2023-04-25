@@ -227,6 +227,16 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 
 
 std::vector<Path> Ink::report(size_t K) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+
 	// scan and add the out-degree=0 vertices to the endpoint vector
 	for (const auto v : _vptrs) {
 		if (v->is_dst()) {
@@ -235,9 +245,20 @@ std::vector<Path> Ink::report(size_t K) {
 	}
 
 	PathHeap heap;
-	for (auto& pt : _endpoints) {
-		_spur(pt, K, heap);
-	}
+	_taskflow.transform_reduce(_endpoints.begin(), _endpoints.end(), heap,
+		[&] (PathHeap l, PathHeap r) mutable {
+			l.merge_and_fit(std::move(r), K);
+			return l;
+		},
+		[&] (Point& ept) {
+			PathHeap heap;
+			_spur(ept, K, heap);
+			return heap;
+		}
+	);
+
+	_executor.run(_taskflow).wait();
+	_taskflow.clear();
 
 	return heap.extract();
 }
@@ -816,6 +837,37 @@ void PathHeap::fit(size_t K) {
 		pop();
 	}
 }
+
+void PathHeap::merge_and_fit(PathHeap&& rhs, size_t K) {
+	
+	// NOTE: question ...
+	// why do I want the one with bigger capacity in front?
+	if (_paths.capacity() < rhs._paths.capacity()) {
+		_paths.swap(rhs._paths);
+	}
+
+	std::sort_heap(_paths.begin(), _paths.end(), _comp);
+	std::sort_heap(rhs._paths.begin(), rhs._paths.end(), _comp);
+
+	// now insert rhs to the back of _paths
+	auto mid = _paths.insert(
+		_paths.end(),
+		std::make_move_iterator(rhs._paths.begin()),
+		std::make_move_iterator(rhs._paths.end())
+	);
+
+	// rhs elements are invalidated
+	rhs._paths.clear();
+
+	std::inplace_merge(_paths.begin(), mid, _paths.end(), _comp);
+	if (_paths.size() > K) {
+		_paths.resize(K);
+	}
+
+	heapify();
+
+}
+
 
 std::vector<Path> PathHeap::extract() {
 	std::sort_heap(_paths.begin(), _paths.end(), _comp);

@@ -7,9 +7,8 @@ set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 project(Ink VERSION 1.0 LANGUAGES C CXX CUDA)
 
 
-# set everything up for c++20 features
+# set everything up for c++XX features
 set(CMAKE_CXX_STANDARD 20)
-
 set(CMAKE_CUDA_ARCHITECTURES 75)
 
 
