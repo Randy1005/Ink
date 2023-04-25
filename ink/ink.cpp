@@ -119,7 +119,7 @@ void Ink::remove_vertex(const std::string& name) {
 	// fanin and fanouts and remove them
 	auto& v = itr->second;
 
-	for (auto& e : v.fanin) {
+	for (auto e : v.fanin) {
 		// remove edge pointer mapping and recycle free id
 		_eptrs[e->id] = nullptr;
 		_idxgen_edge.recycle(e->id);
@@ -127,7 +127,7 @@ void Ink::remove_vertex(const std::string& name) {
 		assert(e->satellite);
 		_edges.erase(*e->satellite);
 	}
-	for (auto& e : v.fanout) {
+	for (auto e : v.fanout) {
 		_eptrs[e->id] = nullptr;
 		_idxgen_edge.recycle(e->id);
 		e->to.remove_fanin(*e);
@@ -237,9 +237,12 @@ std::vector<Path> Ink::report(size_t K) {
 	}
 
 
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
 	// scan and add the out-degree=0 vertices to the endpoint vector
 	for (const auto v : _vptrs) {
-		if (v->is_dst()) {
+		if (v != nullptr && v->is_dst()) {
 			_endpoints.emplace_back(*v, 0.0f);	
 		}
 	}
@@ -271,13 +274,13 @@ void Ink::dump(std::ostream& os) const {
 	for (const auto& [name, v] : _name2v) {
 		os << "name=" << v.name 
 			 << ", id=" << v.id << '\n'; 
-		os << "... fanins=";
+		os << "... " << v.fanin.size() << " fanins=";
 		for (const auto& e : v.fanin) {
 			os << e->from.name << ' ';
 		}
 		os << '\n';
 	
-		os << "... fanouts=";
+		os << "... " << v.fanout.size() << " fanouts=";
 		for (const auto& e : v.fanout) {
 			os << e->to.name << ' ';
 		}
@@ -413,7 +416,7 @@ void Ink::_remove_edge(Edge& e) {
 	// update fanout of v_from, fanin of v_to
 	e.from.remove_fanout(e);
 	e.to.remove_fanin(e);
-	
+
 	// remove pointer mapping and recycle free id
 	_eptrs[e.id] = nullptr;
 	_idxgen_edge.recycle(e.id);
@@ -478,11 +481,6 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 	auto S = _vptrs.size();
 	auto to = p.vert.id;
 
-	// TODO: if p is not specified, run the overloaded
-	// sfxt_cache with T
-	// _sfxt_cache(no P) means I want the critical analysis of
-	// the entire circuit
-
 	Sfxt sfxt(S, to);
 
 	assert(!sfxt.dists[to]);
@@ -497,7 +495,6 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 		sfxt.relax(S, src, std::nullopt, *w);
 	}
 
-	
 	return sfxt;
 }
 
