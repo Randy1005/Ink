@@ -1,6 +1,11 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 #include <ink/ink.hpp>
+const float eps = 0.0001f;
+bool float_equal(const float f1, const float f2) {
+	return std::fabs(f1 - f2) < eps;
+}
+
 
 TEST_CASE("Vertex Insertion + Removal" * doctest::timeout(300)) {
 	ink::Ink ink;
@@ -18,37 +23,37 @@ TEST_CASE("Vertex Insertion + Removal" * doctest::timeout(300)) {
 	REQUIRE(v2.name == "v2");
 	REQUIRE(ink.num_verts() == 2);
 
-	auto& e12 = ink.insert_edge("v1", "v2",
+	ink.insert_edge("v1", "v2",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 	
-	auto& e13 = ink.insert_edge("v1", "v3",
+	ink.insert_edge("v1", "v3",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 	
-	auto& e14 = ink.insert_edge("v1", "v4",
+	ink.insert_edge("v1", "v4",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 
-	auto& e15 = ink.insert_edge("v1", "v5",
+	ink.insert_edge("v1", "v5",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 	
-	auto& e61 = ink.insert_edge("v6", "v1",
+	ink.insert_edge("v6", "v1",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 
-	auto& e71 = ink.insert_edge("v7", "v1",
+	ink.insert_edge("v7", "v1",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 
 
-	auto& e28 = ink.insert_edge("v2", "v8",
+	ink.insert_edge("v2", "v8",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 
 	
-	auto& e29 = ink.insert_edge("v2", "v9",
+	ink.insert_edge("v2", "v9",
 		0, 0, std::nullopt, 0,
 		0, 1.5, 2.8, 0);
 	
@@ -79,8 +84,9 @@ TEST_CASE("Vertex Insertion + Removal" * doctest::timeout(300)) {
 	REQUIRE(v2.num_fanouts() == 2);
 	REQUIRE(v2.num_fanins() == 0);
 
-
-
+	ink.remove_vertex("v2");
+	REQUIRE(ink.num_edges() == 0);
+	REQUIRE(ink.num_verts() == 7);
 
 }
 
@@ -102,7 +108,7 @@ TEST_CASE("Edge Insertion + Removal" * doctest::timeout(300)) {
 
 	REQUIRE(ink.num_edges() == 1);
 
-	auto& e13 = ink.insert_edge("v1", "v3",
+	ink.insert_edge("v1", "v3",
 		0, 0, 3.89, 2.3,
 		0, 1.5, 2.8, 3.89);
 
@@ -110,12 +116,18 @@ TEST_CASE("Edge Insertion + Removal" * doctest::timeout(300)) {
 	REQUIRE(ink.num_edges() == 2);
 	REQUIRE(v1.num_fanouts() == 2);
 
-	// this will not update any value
-	// because this edge originally
-	// had all 8 weights present
-	ink.insert_edge("v1", "v3",
+	// this will overwrite all weight values
+	auto& e13 = ink.insert_edge("v1", "v3",
 		0, 0, 3.89, 2.3,
 		0, 1.5, 2.8, 3.89);
+	REQUIRE(float_equal(*e13.weights[0], 0));
+	REQUIRE(float_equal(*e13.weights[1], 0));
+	REQUIRE(float_equal(*e13.weights[2], 3.89));
+	REQUIRE(float_equal(*e13.weights[3], 2.3));
+	REQUIRE(float_equal(*e13.weights[4], 0));
+	REQUIRE(float_equal(*e13.weights[5], 1.5));
+	REQUIRE(float_equal(*e13.weights[6], 2.8));
+	REQUIRE(float_equal(*e13.weights[7], 3.89));
 	REQUIRE(ink.num_edges() == 2);
 	REQUIRE(v1.num_fanouts() == 2);
 
@@ -130,12 +142,13 @@ TEST_CASE("Edge Insertion + Removal" * doctest::timeout(300)) {
 
 	ink.remove_edge("v1", "v2");
 	REQUIRE(ink.num_edges() == 2);
+	REQUIRE(v1.num_fanouts() == 1);
 
 	ink.remove_edge("v1", "v3");
 	REQUIRE(ink.num_edges() == 1);
+	REQUIRE(v1.num_fanouts() == 0);
 
 	ink.remove_edge("v3", "v5");	
 	REQUIRE(ink.num_edges() == 0);
-
 }
 

@@ -2,8 +2,8 @@
 #include <doctest.h>
 #include <ink/ink.hpp>
 
+const	float eps = 0.0001f;
 bool float_equal(const float f1, const float f2) {
-	float eps = 0.0001f;
 	return std::fabs(f1 - f2) < eps;
 }
 
@@ -61,7 +61,7 @@ TEST_CASE("c17 Benchmark" * doctest::timeout(300)) {
 	REQUIRE(paths[0].size() == 6);	
 	auto it = paths[0].begin();
 	REQUIRE(it->vert.name == "nx1");
-	REQUIRE(it->dist == 0.0f);
+	REQUIRE(float_equal(it->dist, 0.0f));
 	
 	std::advance(it, 1);
 	REQUIRE(it->vert.name == "inst_1:A1");
@@ -248,13 +248,6 @@ TEST_CASE("c17 Benchmark" * doctest::timeout(300)) {
 	std::advance(it, 1);
 	REQUIRE(it->vert.name == "nx23");
 	REQUIRE(float_equal(it->dist, 17.03f));
-
-
-
-
-
-
-
 
 	for (const auto& p : paths) {
 		p.dump(std::cout);
