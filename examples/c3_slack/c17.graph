@@ -1,0 +1,30 @@
+14 15
+inst_0:A1
+inst_0:ZN
+inst_0:A2
+inst_2:Z
+inst_1:ZN
+nx3
+inst_1:A
+nx4
+inst_2:A
+nx2
+nx1
+nx33
+nx12
+nx44
+nx2 inst_0:A2 0 n/a n/a 0 0 n/a n/a 0 
+nx1 inst_0:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_0:ZN nx12 0 n/a n/a 0 0 n/a n/a 0 
+inst_0:A2 inst_0:ZN n/a n/a n/a n/a n/a 10.4293 9.35145 n/a 
+inst_0:A1 inst_0:ZN n/a n/a n/a n/a n/a 7.903 6.796 n/a 
+inst_0:A2 inst_0:ZN n/a 10.4293 9.35145 n/a n/a n/a n/a n/a 
+inst_0:A1 inst_0:ZN n/a 7.903 6.796 n/a n/a n/a n/a n/a 
+inst_1:ZN nx33 0 n/a n/a 0 0 n/a n/a 0 
+nx3 inst_1:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_1:A inst_1:ZN n/a n/a n/a n/a n/a 6.72 5.00925 n/a 
+inst_1:A inst_1:ZN n/a 6.72 5.00925 n/a n/a n/a n/a n/a 
+inst_2:Z nx44 0 n/a n/a 0 0 n/a n/a 0 
+nx4 inst_2:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_2:A inst_2:Z n/a n/a n/a n/a 29.399 n/a n/a 35.0897 
+inst_2:A inst_2:Z 29.399 n/a n/a 35.0897 n/a n/a n/a n/a 

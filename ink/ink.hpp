@@ -115,14 +115,14 @@ public:
 	Edge& insert_edge(
 		const std::string& from,
 		const std::string& to,
-		const std::optional<float> w0,
-		const std::optional<float> w1,
-		const std::optional<float> w2,
-		const std::optional<float> w3,
-		const std::optional<float> w4,
-		const std::optional<float> w5,
-		const std::optional<float> w6,
-		const std::optional<float> w7);
+		const std::optional<float> w0 = std::nullopt,
+		const std::optional<float> w1 = std::nullopt,
+		const std::optional<float> w2 = std::nullopt,
+		const std::optional<float> w3 = std::nullopt,
+		const std::optional<float> w4 = std::nullopt,
+		const std::optional<float> w5 = std::nullopt,
+		const std::optional<float> w6 = std::nullopt,
+		const std::optional<float> w7 = std::nullopt);
 
 	void remove_edge(const std::string& from, const std::string& to);
 

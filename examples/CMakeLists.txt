@@ -1,16 +1,32 @@
 
 # example: simple.cpp
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/simple)
-add_executable(simple_app ${INK_EXAMPLE_DIR}/simple/simple.cpp)
+add_executable(simple_timing ${INK_EXAMPLE_DIR}/simple/simple.cpp)
 
 # example: incremental.cpp
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/incremental)
-add_executable(inc_app ${INK_EXAMPLE_DIR}/incremental/incremental.cpp)
+add_executable(inc_timing ${INK_EXAMPLE_DIR}/incremental/incremental.cpp)
+
+# example: c17.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c17)
+add_executable(c17_timing ${INK_EXAMPLE_DIR}/c17/c17.cpp)
+
+
+# example: s27.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/s27)
+add_executable(s27_timing ${INK_EXAMPLE_DIR}/s27/s27.cpp)
+
+# example: c3_slack.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c3_slack)
+add_executable(c3_slack_timing ${INK_EXAMPLE_DIR}/c3_slack/c3_slack.cpp)
 
 
 list(APPEND INK_EXAMPLES
-  simple_app
-  inc_app
+  simple_timing
+  inc_timing
+  c17_timing
+  s27_timing
+  c3_slack_timing
 )
 
 find_package(Threads REQUIRED)
@@ -24,7 +40,6 @@ foreach(eg IN LISTS INK_EXAMPLES)
   # include OpenTimer
   target_include_directories(${eg}
     PUBLIC ${INK_3RD_PARTY_DIR}/OpenTimer)
-
 endforeach()
 
 

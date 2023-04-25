@@ -1,0 +1,209 @@
+81 127
+inst_22:A
+inst_22:Z
+inst_28:A
+inst_27:Z
+inst_19:A
+inst_20:Z
+inst_3:ZN
+inst_7:ZN
+inst_13:ZN
+inst_25:A
+inst_7:A2
+inst_0:A1
+inst_25:Z
+inst_11:ZN
+inst_1:ZN
+inst_2:A1
+inst_2:A2
+G1
+inst_11:A
+inst_2:ZN
+inst_0:ZN
+inst_20:A
+inst_8:ZN
+G0
+inst_1:A2
+inst_9:ZN
+inst_13:A
+G3
+reset_net
+inst_21:Z
+inst_1:A1
+inst_24:A
+G2
+inst_14:CK
+inst_14:RN
+G17
+inst_18:Z
+clk_net
+inst_21:A
+inst_6:ZN
+inst_16:RN
+inst_18:A
+inst_10:ZN
+inst_14:D
+inst_8:A
+inst_12:ZN
+inst_0:A2
+inst_14:Q
+inst_6:A1
+inst_7:A1
+inst_12:A
+inst_26:Z
+inst_15:D
+inst_26:A
+inst_16:CK
+inst_0:A3
+inst_15:CK
+inst_16:Q
+inst_15:QN
+inst_19:Z
+inst_27:A
+inst_15:Q
+inst_5:A2
+inst_15:RN
+inst_3:A2
+inst_16:QN
+inst_4:A1
+inst_4:A2
+inst_16:D
+inst_9:A
+inst_3:A1
+inst_5:ZN
+inst_6:A2
+inst_5:A1
+inst_14:QN
+inst_24:Z
+inst_10:A
+inst_28:Z
+inst_4:ZN
+inst_23:Z
+inst_23:A
+inst_21:Z inst_22:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_22:Z inst_23:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_22:A inst_22:Z n/a n/a n/a n/a 31.1211 n/a n/a 33.3518 
+inst_22:A inst_22:Z 31.1211 n/a n/a 33.3518 n/a n/a n/a n/a 
+inst_27:Z inst_28:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_28:Z inst_14:CK 0 n/a n/a 0 0 n/a n/a 0 
+inst_28:A inst_28:Z n/a n/a n/a n/a 30.9959 n/a n/a 33.215 
+inst_28:A inst_28:Z 30.9959 n/a n/a 33.215 n/a n/a n/a n/a 
+inst_11:ZN inst_6:A2 0 n/a n/a 0 0 n/a n/a 0 
+G0 inst_11:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_11:A inst_11:ZN n/a n/a n/a n/a n/a 5.03782 2.71927 n/a 
+inst_11:A inst_11:ZN n/a 5.03782 2.71927 n/a n/a n/a n/a n/a 
+inst_23:Z inst_24:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_23:A inst_23:Z n/a n/a n/a n/a 31.1211 n/a n/a 33.3518 
+inst_23:A inst_23:Z 31.1211 n/a n/a 33.3518 n/a n/a n/a n/a 
+inst_15:QN inst_4:A1 0 n/a n/a 0 0 n/a n/a 0 
+G0 inst_4:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_4:ZN inst_2:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_4:A2 inst_4:ZN n/a n/a n/a n/a n/a 10.2985 19.7115 n/a 
+inst_4:A1 inst_4:ZN n/a n/a n/a n/a n/a 8.2348 13.6403 n/a 
+inst_4:A2 inst_4:ZN n/a 10.2985 19.7115 n/a n/a n/a n/a n/a 
+inst_4:A1 inst_4:ZN n/a 8.2348 13.6403 n/a n/a n/a n/a n/a 
+inst_10:ZN inst_7:A1 0 n/a n/a 0 0 n/a n/a 0 
+G1 inst_10:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_10:A inst_10:ZN n/a n/a n/a n/a n/a 4.98038 2.63223 n/a 
+inst_10:A inst_10:ZN n/a 4.98038 2.63223 n/a n/a n/a n/a n/a 
+inst_9:ZN inst_5:A2 0 n/a n/a 0 0 n/a n/a 0 
+G2 inst_5:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_5:ZN inst_14:D 0 n/a n/a 0 0 n/a n/a 0 
+inst_5:A2 inst_5:ZN n/a n/a n/a n/a n/a 8.88653 16.379 n/a 
+inst_5:A1 inst_5:ZN n/a n/a n/a n/a n/a 6.76737 10.1315 n/a 
+inst_5:A2 inst_5:ZN n/a 8.88652 16.3788 n/a n/a n/a n/a n/a 
+inst_5:A1 inst_5:ZN n/a 6.76737 10.1315 n/a n/a n/a n/a n/a 
+inst_9:ZN inst_2:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_7:ZN inst_9:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_9:A inst_9:ZN n/a n/a n/a n/a n/a 4.94436 2.59868 n/a 
+inst_9:A inst_9:ZN n/a 4.93153 2.58846 n/a n/a n/a n/a n/a 
+inst_0:ZN inst_6:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_6:ZN inst_16:D 0 n/a n/a 0 0 n/a n/a 0 
+inst_6:A2 inst_6:ZN n/a n/a n/a n/a n/a 8.88649 16.3785 n/a 
+inst_6:A1 inst_6:ZN n/a n/a n/a n/a n/a 6.80136 10.1196 n/a 
+inst_6:A2 inst_6:ZN n/a 8.88649 16.3785 n/a n/a n/a n/a n/a 
+inst_6:A1 inst_6:ZN n/a 6.79627 10.0835 n/a n/a n/a n/a n/a 
+inst_15:QN inst_3:A1 0 n/a n/a 0 0 n/a n/a 0 
+G0 inst_3:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_3:ZN inst_1:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_3:A2 inst_3:ZN n/a n/a n/a n/a n/a 10.2985 19.7115 n/a 
+inst_3:A1 inst_3:ZN n/a n/a n/a n/a n/a 8.2348 13.6403 n/a 
+inst_3:A2 inst_3:ZN n/a 10.2985 19.7115 n/a n/a n/a n/a n/a 
+inst_3:A1 inst_3:ZN n/a 8.2348 13.6403 n/a n/a n/a n/a n/a 
+inst_24:Z inst_25:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_24:A inst_24:Z n/a n/a n/a n/a 31.1211 n/a n/a 33.3518 
+inst_24:A inst_24:Z 31.1211 n/a n/a 33.3518 n/a n/a n/a n/a 
+inst_13:ZN inst_16:RN 0 n/a n/a 0 0 n/a n/a 0 
+inst_16:QN inst_8:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_25:Z inst_16:CK 0 n/a n/a 0 0 n/a n/a 0 
+inst_16:CK inst_16:Q n/a n/a n/a n/a 126.511 102.514 n/a n/a 
+inst_16:CK inst_16:QN n/a n/a n/a n/a 88.1269 109.611 n/a n/a 
+inst_16:CK inst_16:D n/a n/a n/a n/a n/a n/a n/a n/a 
+inst_16:CK inst_16:Q 126.511 102.514 n/a n/a n/a n/a n/a n/a 
+inst_16:CK inst_16:QN 88.1269 109.611 n/a n/a n/a n/a n/a n/a 
+inst_13:ZN inst_15:RN 0 n/a n/a 0 0 n/a n/a 0 
+inst_0:ZN inst_15:D 0 n/a n/a 0 0 n/a n/a 0 
+inst_20:Z inst_15:CK 0 n/a n/a 0 0 n/a n/a 0 
+inst_15:CK inst_15:Q n/a n/a n/a n/a 126.511 102.515 n/a n/a 
+inst_15:CK inst_15:QN n/a n/a n/a n/a 88.2034 109.66 n/a n/a 
+inst_15:CK inst_15:D n/a n/a n/a n/a n/a n/a n/a n/a 
+inst_15:CK inst_15:Q 126.511 102.515 n/a n/a n/a n/a n/a n/a 
+inst_15:CK inst_15:QN 88.2034 109.66 n/a n/a n/a n/a n/a n/a 
+clk_net inst_18:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_18:Z inst_26:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_18:Z inst_19:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_18:A inst_18:Z n/a n/a n/a n/a 31.526 n/a n/a 33.798 
+inst_18:A inst_18:Z 31.526 n/a n/a 33.798 n/a n/a n/a n/a 
+inst_2:ZN inst_0:A1 0 n/a n/a 0 0 n/a n/a 0 
+inst_8:ZN inst_0:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_0:ZN inst_12:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_1:ZN inst_0:A3 0 n/a n/a 0 0 n/a n/a 0 
+inst_0:A3 inst_0:ZN n/a n/a n/a n/a n/a 12.7316 40.3119 n/a 
+inst_0:A2 inst_0:ZN n/a n/a n/a n/a n/a 11.8626 30.6487 n/a 
+inst_0:A1 inst_0:ZN n/a n/a n/a n/a n/a 9.21745 18.3838 n/a 
+inst_0:A3 inst_0:ZN n/a 12.7294 40.3045 n/a n/a n/a n/a n/a 
+inst_0:A2 inst_0:ZN n/a 11.8626 30.6487 n/a n/a n/a n/a n/a 
+inst_0:A1 inst_0:ZN n/a 9.21712 18.3707 n/a n/a n/a n/a n/a 
+inst_26:Z inst_27:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_26:A inst_26:Z n/a n/a n/a n/a 31.1231 n/a n/a 33.3545 
+inst_26:A inst_26:Z 31.1231 n/a n/a 33.3545 n/a n/a n/a n/a 
+inst_27:A inst_27:Z n/a n/a n/a n/a 31.1211 n/a n/a 33.3518 
+inst_27:A inst_27:Z 31.1211 n/a n/a 33.3518 n/a n/a n/a n/a 
+inst_13:ZN inst_14:RN 0 n/a n/a 0 0 n/a n/a 0 
+reset_net inst_13:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_13:A inst_13:ZN n/a n/a n/a n/a n/a 7.86081 6.74571 n/a 
+inst_13:A inst_13:ZN n/a 7.86081 6.74571 n/a n/a n/a n/a n/a 
+inst_19:Z inst_20:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_20:Z inst_21:A 0 n/a n/a 0 0 n/a n/a 0 
+inst_20:A inst_20:Z n/a n/a n/a n/a 31.3956 n/a n/a 33.6519 
+inst_20:A inst_20:Z 31.3956 n/a n/a 33.6519 n/a n/a n/a n/a 
+inst_14:QN inst_7:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_7:A2 inst_7:ZN n/a n/a n/a n/a n/a 8.99405 7.89493 n/a 
+inst_7:A1 inst_7:ZN n/a n/a n/a n/a n/a 6.30556 5.18055 n/a 
+inst_7:A2 inst_7:ZN n/a 8.99405 7.89493 n/a n/a n/a n/a n/a 
+inst_7:A1 inst_7:ZN n/a 6.30556 5.18055 n/a n/a n/a n/a n/a 
+inst_25:A inst_25:Z n/a n/a n/a n/a 30.9959 n/a n/a 33.215 
+inst_25:A inst_25:Z 30.9959 n/a n/a 33.215 n/a n/a n/a n/a 
+inst_21:A inst_21:Z n/a n/a n/a n/a 31.1225 n/a n/a 33.3537 
+inst_21:A inst_21:Z 31.1225 n/a n/a 33.3537 n/a n/a n/a n/a 
+G3 inst_1:A2 0 n/a n/a 0 0 n/a n/a 0 
+inst_1:A2 inst_1:ZN n/a n/a n/a n/a n/a 8.74727 16.3652 n/a 
+inst_1:A1 inst_1:ZN n/a n/a n/a n/a n/a 6.58262 9.96117 n/a 
+inst_1:A2 inst_1:ZN n/a 8.74727 16.3652 n/a n/a n/a n/a n/a 
+inst_1:A1 inst_1:ZN n/a 6.57885 9.94742 n/a n/a n/a n/a n/a 
+inst_2:A2 inst_2:ZN n/a n/a n/a n/a n/a 8.77977 16.4187 n/a 
+inst_2:A1 inst_2:ZN n/a n/a n/a n/a n/a 6.62833 10.0618 n/a 
+inst_2:A2 inst_2:ZN n/a 8.77975 16.4185 n/a n/a n/a n/a n/a 
+inst_2:A1 inst_2:ZN n/a 6.62456 10.048 n/a n/a n/a n/a n/a 
+inst_8:A inst_8:ZN n/a n/a n/a n/a n/a 4.67048 2.46325 n/a 
+inst_8:A inst_8:ZN n/a 4.67048 2.46325 n/a n/a n/a n/a n/a 
+inst_12:ZN G17 0 n/a n/a 0 0 n/a n/a 0 
+inst_12:A inst_12:ZN n/a n/a n/a n/a n/a 6.82068 4.99633 n/a 
+inst_12:A inst_12:ZN n/a 6.80562 4.95692 n/a n/a n/a n/a n/a 
+inst_14:CK inst_14:Q n/a n/a n/a n/a 126.511 102.514 n/a n/a 
+inst_14:CK inst_14:QN n/a n/a n/a n/a 87.3898 109.141 n/a n/a 
+inst_14:CK inst_14:D n/a n/a n/a n/a n/a n/a n/a n/a 
+inst_14:CK inst_14:Q 126.511 102.514 n/a n/a n/a n/a n/a n/a 
+inst_14:CK inst_14:QN 87.3898 109.141 n/a n/a n/a n/a n/a n/a 
+inst_19:A inst_19:Z n/a n/a n/a n/a 31.1231 n/a n/a 33.3545 
+inst_19:A inst_19:Z 31.1231 n/a n/a 33.3545 n/a n/a n/a n/a 
