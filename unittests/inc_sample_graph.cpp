@@ -2,7 +2,7 @@
 #include <doctest.h>
 #include <ink/ink.hpp>
 
-TEST_CASE("Sample Graph From UITimer Paper" * doctest::timeout(300)) {
+TEST_CASE("Sample Graph From UITimer Paper w/ Incremental Update" * doctest::timeout(300)) {
 	ink::Ink ink;
 
 	ink.insert_edge("v0", "v6",
@@ -231,7 +231,7 @@ TEST_CASE("Sample Graph From UITimer Paper" * doctest::timeout(300)) {
 	// design modifier operations
 	// ---------------------------
 	
-	// removing vertices 
+	// removing vertices v1, v2 
 	ink.remove_vertex("v1");
 	ink.remove_vertex("v2");
 	
