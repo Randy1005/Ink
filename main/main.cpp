@@ -14,10 +14,8 @@ int main(int argc, char* argv[]) {
 	for (const auto& p : paths) {
 		p.dump(std::cout);
 	}	
-
-
-	std::ofstream ofs("simple.dmp");
-	ink.dump(ofs);
+	
+	//ink.dump(std::cout);
 
 	return 0;
 }
