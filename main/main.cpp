@@ -10,12 +10,14 @@ int main(int argc, char* argv[]) {
 	ink::Ink ink;
 	ink.read_graph(argv[1]);
 
-	auto paths = ink.report(50);
+	auto paths = ink.report(10);
 	for (const auto& p : paths) {
 		p.dump(std::cout);
 	}	
-	
-	//ink.dump(std::cout);
+
+	std::ofstream ofs("ink.dmp");
+	ink.dump(ofs);
+
 
 	return 0;
 }

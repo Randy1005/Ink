@@ -383,9 +383,14 @@ private:
 	// NOTE: free list is defined in this object
 	IdxGen _idxgen_edge;
 
+
+	// taskflow object and executor
 	tf::Taskflow _taskflow;
 	tf::Executor _executor;
 
+	// unordered map:
+	// mapping from edge name to std::list<Edge>::iterator
+	std::unordered_map<std::string, std::list<Edge>::iterator> _name2eit;
 };
 
 /**

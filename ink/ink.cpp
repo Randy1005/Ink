@@ -161,20 +161,26 @@ Edge& Ink::insert_edge(
 		
 	Vert& v_from = insert_vertex(from);
 	Vert& v_to = insert_vertex(to);
-	
-	auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
-		return (e.from.name == from) && (e.to.name == to);
-	});
+
+	const std::string ename = from + "->" + to;
+	auto itr = _name2eit.find(ename);
 
 
-	if (itr != _edges.end()) {
+	//auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
+	//	return (e.from.name == from) && (e.to.name == to);
+	//});
+
+
+	if (itr != _name2eit.end()) {
 		// edge exists
+		auto& e = *itr->second;
+
 		// update weights
-		for (size_t i = 0; i < itr->weights.size(); i++) {
-			itr->weights[i] = ws[i];
+		for (size_t i = 0; i < e.weights.size(); i++) {
+			e.weights[i] = ws[i];
 		}
 
-		return (*itr);
+		return e;
 	}
 	else {
 		// edge doesn't exist
@@ -199,6 +205,10 @@ Edge& Ink::insert_edge(
 		// (for edge removal)
 		e.from.insert_fanout(e);
 		e.to.insert_fanin(e);
+
+		// update the edge name to iterator mapping
+		_name2eit.emplace(ename, _edges.begin());
+
 		return e; 
 	}
 
@@ -213,16 +223,20 @@ Edge& Ink::insert_edge(
 }
 
 void Ink::remove_edge(const std::string& from, const std::string& to) {
-  auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
-		return e.from.name == from && e.to.name == to;
-	});
+  
+	const std::string ename = from + "->" + to;
+	auto itr = _name2eit.find(ename);
+	
+	//auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
+	//	return e.from.name == from && e.to.name == to;
+	//});
 
-	if (itr == _edges.end()) {
+	if (itr == _name2eit.end()) {
 		// edge non existent, nothing to do
 		return;
 	}
 	
-	_remove_edge(*itr);
+	_remove_edge(*itr->second);
 }
 
 
@@ -335,30 +349,33 @@ void Ink::dump(std::ostream& os) const {
 
 void Ink::_read_graph(std::istream& is) {
 	std::string buf;
+	size_t line_cnt = 0;
 	while (true) {
 		is >> buf;
 		if (is.eof()) {
 			break;
 		}
-
+			
 		// 1st line: 
 		// [n verts] [n edges]
 		auto n_verts = std::stoi(buf);
 		is >> buf;
 		auto n_edges = std::stoi(buf);
-		
+	
+		std::cout << "reading vertices.\n";
 		// next n_verts lines are vertex names
 		for (int i = 0; i < n_verts; i++) {
 			is >> buf;
 			insert_vertex(buf);
 		}
 
+		std::cout << "finished reading " << n_verts << " vertices.\n";
+
+		std::cout << "reading edges.\n";
 		// next n_edges lines are edge definitions
 		// format: [from] [to] [weights] [edge name]
-		std::vector<std::optional<float>> ws;
 		for (int i = 0; i < n_edges; i++) {
-			ws.clear();
-			
+			std::array<std::optional<float>, NUM_WEIGHTS> ws;
 			is >> buf;
 			auto from = buf;
 			is >> buf;
@@ -367,10 +384,10 @@ void Ink::_read_graph(std::istream& is) {
 			for (int j = 0; j < 8; j++) {
 				is >> buf;
 				if (buf == "n/a") {
-					ws.emplace_back(std::nullopt);
+					ws[j] = std::nullopt;
 				}
 				else {
-					ws.emplace_back(std::stof(buf));
+					ws[j] = std::stof(buf);
 				}
 			}
 
@@ -379,7 +396,7 @@ void Ink::_read_graph(std::istream& is) {
 				ws[4], ws[5], ws[6], ws[7]);
 			
 		}
-	
+		std::cout << "finished reading " << n_edges << " edges.\n";	
 	}
 }
 
@@ -546,11 +563,7 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 
 		// expand search space
 		_spur(pfxt, *node);
-	
-		
 	}
-
-
 
 } 
 
@@ -583,20 +596,11 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 					continue;
 				}
 				
-
 				auto w = *edge->weights[w_sel];
 				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
 				
-
 				auto s = detour_cost + pfx.detour_cost;
-				//if (auto s = detour_cost + pfx.detour_cost; s < 0.0f) {
-				//	std::cout << "pfx.detour_cost = " << pfx.detour_cost << '\n';
-				//	std::cout << "detour cost = " << detour_cost << '\n';
-				//	std::cout << "from = " << _vptrs[u]->name << '\n';
-				//	std::cout << "to = " << _vptrs[v]->name << '\n';
 				pfxt.push(s, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
-				//}
-
 			}
 		}
 

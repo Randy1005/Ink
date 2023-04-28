@@ -7,6 +7,11 @@ bool float_equal(const float f1, const float f2) {
 	return std::fabs(f1 - f2) < eps;
 }
 
+// TODO:
+void build_c17(ink::Ink& ink) {
+
+}
+
 TEST_CASE("c17 Benchmark" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("nx1", "inst_1:A1", 0);
