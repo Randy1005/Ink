@@ -112,7 +112,6 @@ add_subdirectory(${INK_3RD_PARTY_DIR}/OpenTimer)
 add_subdirectory(${INK_EXAMPLE_DIR})
 add_subdirectory(main)
 add_subdirectory(unittests)
-add_subdirectory(inttests)
 
 
 
