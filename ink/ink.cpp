@@ -237,6 +237,9 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 	}
 	
 	_remove_edge(*itr->second);
+	
+	// remove name to edge iterator mapping
+	_name2eit.erase(itr);
 }
 
 
@@ -344,6 +347,8 @@ void Ink::dump(std::ostream& os) const {
 			os << "ptr to null\n";
 		}
 	}
+
+
 
 }
 
@@ -558,8 +563,10 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 		_recover_path(*path, sfxt, node, sfxt.T);
 		
 		path->weight = path->back().dist;
-		heap.push(std::move(path));
-		heap.fit(K);
+		if (path->size() > 1) {
+			heap.push(std::move(path));
+			heap.fit(K);
+		}
 
 		// expand search space
 		_spur(pfxt, *node);

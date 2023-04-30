@@ -6,6 +6,7 @@ list(APPEND INK_UNITTESTS
   c17_graph
   c3_slack_graph
   simp_s27_graph
+  chains
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)
