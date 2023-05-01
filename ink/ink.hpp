@@ -108,7 +108,7 @@ class Ink {
 public:
 	Ink() = default;	
 
-	void read_graph(const std::string& file);
+	void read_graph(const std::string& in, const std::string& out);
 
 	Vert& insert_vertex(const std::string& name);
 	
@@ -282,7 +282,7 @@ private:
 	};
 
 	
-	void _read_graph(std::istream& is);
+	void _read_graph(std::istream& is, std::ostream& os);
 	
 	void _topologize(Sfxt& sfxt, size_t root) const;
 

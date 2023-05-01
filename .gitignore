@@ -32,15 +32,8 @@ _deps
 *tags
 
 # regression outputs
-[Ii]nttests/*
-[Ii]nttests/
-*.output
-*.mem
-*.out
-inttests/regression*
-inttests/*.csv
-inttests/*.xlsx
+[Rr]egressions/*
+[Rr]egressions/
 
 # valgrind debug outputs
 vgcore*
-build/vgcore*

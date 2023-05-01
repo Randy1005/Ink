@@ -19,12 +19,9 @@ int main(int argc, char *argv[]) {
     std::cout << paths[i] << '\n';
   }
 
-  // dump the timing graph to dot format for debugging
-  //timer.dump_graph_labels(std::cout);
-  
+  std::ofstream ofs("vga_lcd.graph");
+  timer.dump_graph_ops(ofs, 50000, 100000); 
 	
-	std::ofstream ofs("vga_lcd.graph");
-  timer.dump_graph_input(ofs);
 
 
   return 0;

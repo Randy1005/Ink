@@ -1,47 +1,28 @@
-18 28
-u1:A
-f1:D
-out
-u1:Y
-u4:B
-inp1
-u4:A
-u3:Y
-inp2
-u2:A
-u1:B
-f1:CLK
-f1:Q
-u2:Y
-tau2015_clk
-f1:
-u3:A
-u4:Y
-f1:Q u4:B 0 n/a n/a 0 0 n/a n/a 0 
-u1:Y u4:A 0 n/a n/a 0 0 n/a n/a 0 
-u4:Y f1:D 0 n/a n/a 0 0 n/a n/a 0 
-u4:B u4:Y n/a n/a n/a n/a n/a 0.0466093 0.095974 n/a 
-u4:A u4:Y n/a n/a n/a n/a n/a 0.369044 0.189142 n/a 
-u4:B u4:Y n/a 0.0466093 0.095974 n/a n/a n/a n/a n/a 
-u4:A u4:Y n/a 0.181293 0.0998997 n/a n/a n/a n/a n/a 
-u2:Y u3:A 0 n/a n/a 0 0 n/a n/a 0 
-u3:Y out 0 n/a n/a 0 0 n/a n/a 0 
-u3:A u3:Y n/a n/a n/a n/a n/a 3.20825 3.51307 n/a 
-u3:A u3:Y n/a 3.20825 3.51307 n/a n/a n/a n/a n/a 
-f1:Q u2:A 0 n/a n/a 0 0 n/a n/a 0 
-u2:A u2:Y n/a n/a n/a n/a n/a 0.0544767 0.138329 n/a 
-u2:A u2:Y n/a 0.0544767 0.138329 n/a n/a n/a n/a n/a 
-tau2015_clk f1:CLK 0 n/a n/a 0 0 n/a n/a 0 
-f1:CLK f1:D n/a n/a n/a n/a n/a n/a n/a n/a 
-f1: f1:D n/a n/a n/a n/a n/a n/a n/a n/a 
-f1: f1:CLK n/a n/a n/a n/a n/a n/a n/a n/a 
-f1:CLK f1:Q n/a n/a n/a n/a n/a n/a 1.47409 2.37702 
-f1: f1:D n/a n/a n/a n/a n/a n/a n/a n/a 
-f1: f1:CLK n/a n/a n/a n/a n/a n/a n/a n/a 
-f1:CLK f1:Q n/a n/a 1.47409 2.37702 n/a n/a n/a n/a 
-inp2 u1:B 0 n/a n/a 0 0 n/a n/a 0 
-inp1 u1:A 0 n/a n/a 0 0 n/a n/a 0 
-u1:B u1:Y n/a n/a n/a n/a n/a -1.24543 6.09488 n/a 
-u1:A u1:Y n/a n/a n/a n/a n/a -1.05023 4.58095 n/a 
-u1:B u1:Y n/a -0.91343 4.59212 n/a n/a n/a n/a n/a 
-u1:A u1:Y n/a -0.486338 2.78555 n/a n/a n/a n/a n/a 
+insert_edge f1:Q u4:B 0 n/a n/a 0 0 n/a n/a 0 
+report 2
+insert_edge u1:Y u4:A 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u4:Y f1:D 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u4:B u4:Y n/a n/a n/a n/a n/a 0.0466093 0.095974 n/a 
+insert_edge u4:A u4:Y n/a n/a n/a n/a n/a 0.369044 0.189142 n/a 
+insert_edge u4:B u4:Y n/a 0.0466093 0.095974 n/a n/a n/a n/a n/a 
+report 2
+insert_edge u4:A u4:Y n/a 0.181293 0.0998997 n/a n/a n/a n/a n/a 
+insert_edge u2:Y u3:A 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u3:Y out 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u3:A u3:Y n/a n/a n/a n/a n/a 3.20825 3.51307 n/a 
+insert_edge u3:A u3:Y n/a 3.20825 3.51307 n/a n/a n/a n/a n/a 
+report 2
+insert_edge f1:Q u2:A 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u2:A u2:Y n/a n/a n/a n/a n/a 0.0544767 0.138329 n/a 
+insert_edge u2:A u2:Y n/a 0.0544767 0.138329 n/a n/a n/a n/a n/a 
+insert_edge tau2015_clk f1:CLK 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge f1:CLK f1:Q n/a n/a n/a n/a n/a n/a 1.47409 2.37702 
+report 2
+insert_edge f1:CLK f1:Q n/a n/a 1.47409 2.37702 n/a n/a n/a n/a 
+insert_edge inp2 u1:B 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge inp1 u1:A 0 n/a n/a 0 0 n/a n/a 0 
+insert_edge u1:B u1:Y n/a n/a n/a n/a n/a -1.24543 6.09488 n/a 
+insert_edge u1:A u1:Y n/a n/a n/a n/a n/a -1.05023 4.58095 n/a 
+report 2
+insert_edge u1:B u1:Y n/a -0.91343 4.59212 n/a n/a n/a n/a n/a 
+insert_edge u1:A u1:Y n/a -0.486338 2.78555 n/a n/a n/a n/a n/a 

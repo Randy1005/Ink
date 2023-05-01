@@ -60,20 +60,20 @@ std::string Edge::name() const {
 // Ink Implementations
 // ------------------------
 
-void Ink::read_graph(const std::string& file) {
+void Ink::read_graph(const std::string& in, const std::string& out) {
 	std::ifstream ifs;
-	ifs.open(file);
+	ifs.open(in);
 	if (!ifs) {
-		throw std::runtime_error("Failed to open file: " + file);
+		throw std::runtime_error("Failed to open file: " + in);
 	}
 
-	_read_graph(ifs);
+	std::ofstream ofs(out);
+
+	_read_graph(ifs, ofs);
 }
 
 
 Vert& Ink::insert_vertex(const std::string& name) {
-	// TODO: correct this code
-	
 	// NOTE: 
 	// 1. (vertex non-existent): simply insert
 	// if a valid id can be popped from the free list, assign
@@ -352,57 +352,50 @@ void Ink::dump(std::ostream& os) const {
 
 }
 
-void Ink::_read_graph(std::istream& is) {
+void Ink::_read_graph(std::istream& is, std::ostream& os) {
 	std::string buf;
-	size_t line_cnt = 0;
 	while (true) {
 		is >> buf;
 		if (is.eof()) {
 			break;
 		}
-			
-		// 1st line: 
-		// [n verts] [n edges]
-		auto n_verts = std::stoi(buf);
-		is >> buf;
-		auto n_edges = std::stoi(buf);
-	
-		std::cout << "reading vertices.\n";
-		// next n_verts lines are vertex names
-		for (int i = 0; i < n_verts; i++) {
+		
+		if (buf == "report") {
 			is >> buf;
-			insert_vertex(buf);
+			auto paths = report(std::stoul(buf));
+			os << paths.size() << '\n';
+			for (const auto& p : paths) {
+				os << p.weight << ' ';
+			}
+			os << '\n';
 		}
 
-		std::cout << "finished reading " << n_verts << " vertices.\n";
-
-		std::cout << "reading edges.\n";
-		// next n_edges lines are edge definitions
-		// format: [from] [to] [weights] [edge name]
-		for (int i = 0; i < n_edges; i++) {
-			std::array<std::optional<float>, NUM_WEIGHTS> ws;
+		if (buf == "insert_edge") {
+			std::array<std::optional<float>, 8> ws;
 			is >> buf;
-			auto from = buf;
+			std::string from(buf);
 			is >> buf;
-			auto to = buf;
+			std::string to(buf);
 			
-			for (int j = 0; j < 8; j++) {
+			for (size_t i = 0; i < NUM_WEIGHTS; i++) {
 				is >> buf;
 				if (buf == "n/a") {
-					ws[j] = std::nullopt;
+					ws[i] = std::nullopt;
 				}
 				else {
-					ws[j] = std::stof(buf);
+					ws[i] = stof(buf);
 				}
 			}
 
-			insert_edge(from, to, 
+			insert_edge(from, to,
 				ws[0], ws[1], ws[2], ws[3],
 				ws[4], ws[5], ws[6], ws[7]);
-			
 		}
-		std::cout << "finished reading " << n_edges << " edges.\n";	
+
+
 	}
+	std::cout << "finished reading " << num_edges() << " edges.\n";	
+	std::cout << "finished reading " << num_verts() << " vertices.\n";	
 }
 
 Edge& Ink::_insert_edge(
