@@ -212,7 +212,74 @@ TEST_CASE("3 chains" * doctest::timeout(300)) {
 	REQUIRE(float_equal(paths[1].weight, -2));
 	REQUIRE(float_equal(paths[2].weight, 7));
 
+	ink.insert_edge("v15", "v16", 3);
+	REQUIRE(ink.num_verts() == 16);
+	REQUIRE(ink.num_edges() == 13);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, -20));
+	REQUIRE(float_equal(paths[1].weight, 1));
+	REQUIRE(float_equal(paths[2].weight, 7));
 
+	
+	ink.insert_edge("v16", "v17", 13.5);
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 14);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, -20));
+	REQUIRE(float_equal(paths[1].weight, 7));
+	REQUIRE(float_equal(paths[2].weight, 14.5));
 
+	// incremental destruction of 3 chains
+	ink.remove_edge("v16", "v17");
+	ink.remove_edge("v11", "v12");
+	ink.remove_edge("v5", "v6");
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 11);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, -14));
+	REQUIRE(float_equal(paths[1].weight, 1));
+	REQUIRE(float_equal(paths[2].weight, 10));
+	
+	ink.remove_edge("v15", "v16");
+	ink.remove_edge("v10", "v11");
+	ink.remove_edge("v4", "v5");
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 8);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, -9));
+	REQUIRE(float_equal(paths[1].weight, -2));
+	REQUIRE(float_equal(paths[2].weight, 6));
+
+	ink.remove_edge("v14", "v15");
+	ink.remove_edge("v9", "v10");
+	ink.remove_edge("v3", "v4");
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 5);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, -5));
+	REQUIRE(float_equal(paths[1].weight, 0));
+	REQUIRE(float_equal(paths[2].weight, 3));
+
+	ink.remove_edge("v13", "v14");
+	ink.remove_edge("v8", "v9");
+	ink.remove_edge("v2", "v3");
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 2);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 2);
+	REQUIRE(float_equal(paths[0].weight, -2));
+	REQUIRE(float_equal(paths[1].weight, 1));
+
+	ink.remove_edge("v7", "v8");
+	ink.remove_edge("v1", "v2");
+	REQUIRE(ink.num_verts() == 17);
+	REQUIRE(ink.num_edges() == 0);
+	paths = ink.report(10);
+	REQUIRE(paths.size() == 0);
 }
 

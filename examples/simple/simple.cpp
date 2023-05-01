@@ -31,11 +31,6 @@ int main(int argc, char *argv[]) {
   timer.dump_at(std::cout);
   timer.dump_power(std::cout);
 
-  std::ofstream ofs("simple.graph");
-
-  timer.dump_graph_input(ofs);
-
-
   return 0;
 }
 
