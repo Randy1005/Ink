@@ -1,7 +1,7 @@
 # 
-# # example: simple.cpp
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/simple)
-# add_executable(simple_timing ${INK_EXAMPLE_DIR}/simple/simple.cpp)
+# example: simple.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/simple)
+add_executable(simple_timing ${INK_EXAMPLE_DIR}/simple/simple.cpp)
 # 
 # # example: incremental.cpp
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/incremental)
@@ -33,8 +33,8 @@
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/vga_lcd)
 # add_executable(vga_lcd_timing ${INK_EXAMPLE_DIR}/vga_lcd/vga_lcd.cpp)
 # 
-# list(APPEND INK_EXAMPLES
-#   simple_timing
+list(APPEND INK_EXAMPLES
+  simple_timing
 #   inc_timing
 #   c17_timing
 #   s27_timing
@@ -42,7 +42,7 @@
 #   c17_slack_timing
 #   c432_timing
 #   vga_lcd_timing
-# )
+)
 
 find_package(Threads REQUIRED)
 foreach(eg IN LISTS INK_EXAMPLES) 
