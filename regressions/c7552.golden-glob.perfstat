@@ -1,0 +1,20 @@
+finished reading 4791 edges.
+finished reading 3802 vertices.
+
+ Performance counter stats for './Ink-read-ops-glob ../examples/c7552/c7552.graph c7552.golden-glob':
+
+            563.54 msec task-clock:u              #    0.962 CPUs utilized          
+                 0      context-switches:u        #    0.000 /sec                   
+                 0      cpu-migrations:u          #    0.000 /sec                   
+             3,190      page-faults:u             #    5.661 K/sec                  
+     2,565,984,911      cycles:u                  #    4.553 GHz                    
+     5,511,639,110      instructions:u            #    2.15  insn per cycle         
+     1,089,232,164      branches:u                #    1.933 G/sec                  
+         9,354,141      branch-misses:u           #    0.86% of all branches        
+
+       0.585907800 seconds time elapsed
+
+       0.536355000 seconds user
+       0.029148000 seconds sys
+
+

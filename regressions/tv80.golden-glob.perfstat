@@ -1,0 +1,20 @@
+finished reading 11364 edges.
+finished reading 16681 vertices.
+
+ Performance counter stats for './Ink-read-ops-glob ../examples/tv80/tv80.graph tv80.golden-glob':
+
+            839.95 msec task-clock:u              #    0.982 CPUs utilized          
+                 0      context-switches:u        #    0.000 /sec                   
+                 0      cpu-migrations:u          #    0.000 /sec                   
+            13,415      page-faults:u             #   15.971 K/sec                  
+     3,803,733,797      cycles:u                  #    4.529 GHz                    
+     7,941,523,870      instructions:u            #    2.09  insn per cycle         
+     1,571,058,115      branches:u                #    1.870 G/sec                  
+        13,933,179      branch-misses:u           #    0.89% of all branches        
+
+       0.855323827 seconds time elapsed
+
+       0.818549000 seconds user
+       0.022071000 seconds sys
+
+

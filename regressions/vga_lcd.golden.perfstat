@@ -1,0 +1,20 @@
+finished reading 473772 edges.
+finished reading 397806 vertices.
+
+ Performance counter stats for './Ink-read-ops ../examples/vga_lcd/vga_lcd.graph vga_lcd.golden':
+
+    150,023,774.16 msec task-clock:u              #   15.521 CPUs utilized          
+                 0      context-switches:u        #    0.000 /sec                   
+                 0      cpu-migrations:u          #    0.000 /sec                   
+        64,430,247      page-faults:u             #  429.467 /sec                   
+595,747,847,448,317      cycles:u                  #    3.971 GHz                    
+324,226,225,893,232      instructions:u            #    0.54  insn per cycle         
+64,810,691,952,607      branches:u                #  432.003 M/sec                  
+   650,854,822,384      branch-misses:u           #    1.00% of all branches        
+
+    9666.035007592 seconds time elapsed
+
+  149561.590874000 seconds user
+     248.797709000 seconds sys
+
+

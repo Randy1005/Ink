@@ -413,7 +413,7 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 		
 		if (buf == "report") {
 			is >> buf;
-			auto paths = report(std::stoul(buf));
+			auto paths = report_global(std::stoul(buf));
 			os << paths.size() << '\n';
 			for (const auto& p : paths) {
 				os << p.weight << ' ';
