@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 
   // dump graph operations
   std::ofstream ofs("simple.graph");
-  timer.dump_graph_ops(ofs, 5, 2);
+  timer.dump_graph_ops(ofs, 5, 20);
 
 
   return 0;

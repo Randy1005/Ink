@@ -31,6 +31,10 @@ _deps
 # ctags
 *tags
 
+# graph operation dumps
+*.graph
+
+
 # regression outputs
 [Rr]egressions/*
 [Rr]egressions/

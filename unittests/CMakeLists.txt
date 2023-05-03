@@ -8,6 +8,7 @@ list(APPEND INK_UNITTESTS
   simp_s27_graph
   chains
   binary_trees
+  glob_sfxt
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)

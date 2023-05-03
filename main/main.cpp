@@ -8,8 +8,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	ink::Ink ink;
-	ink.read_graph(argv[1], argv[2]);
+	ink.read_ops_and_report(argv[1], argv[2]);
 
-
+	
 	return 0;
 }

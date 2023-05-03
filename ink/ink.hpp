@@ -49,6 +49,11 @@ struct Vert {
 	size_t id;
 	std::list<Edge*> fanin;
 	std::list<Edge*> fanout;
+
+	// to record whether this vertex 
+	// is already marked as to be updated
+	// we don't want duplicates in the update list
+	bool is_in_update_list{false};
 };
 
 
@@ -68,7 +73,7 @@ struct Edge {
 
 	/**
 	@brief returns the index of the minimum weight
-	(excluding the std::nullopts)
+	(excluding std::nullopts)
 	*/
 	inline auto min_valid_weight() const {
 		float v = std::numeric_limits<float>::max();
@@ -93,6 +98,7 @@ struct Edge {
 	// satellite iterator indicating the position of this edge 
 	// in a vertex's fanout list
 	std::optional<std::list<Edge*>::iterator> fanout_satellite;
+
 	// satellite iterator indicating the position of this edge 
 	// in a vertex's fanin list
 	std::optional<std::list<Edge*>::iterator> fanin_satellite;
@@ -108,7 +114,7 @@ class Ink {
 public:
 	Ink() = default;	
 
-	void read_graph(const std::string& in, const std::string& out);
+	void read_ops_and_report(const std::string& in, const std::string& out);
 
 	Vert& insert_vertex(const std::string& name);
 	
@@ -130,6 +136,9 @@ public:
 
 	std::vector<Path> report(size_t K);
 
+	std::vector<Path> report_global(size_t K);
+
+
 
 	void dump(std::ostream& os) const;
 
@@ -148,6 +157,7 @@ private:
 	@brief Suffix Tree
 	*/
 	struct Sfxt {
+		Sfxt() = default;
 		Sfxt(size_t S, size_t T);
 
 		inline bool relax(
@@ -171,6 +181,9 @@ private:
 		// sources
 		std::unordered_map<size_t, std::optional<float>> srcs;
 
+		// sources
+		std::unordered_map<size_t, std::optional<float>> dsts;
+		
 		// topological order of vertices
 		std::vector<size_t> topo_order; 
 
@@ -282,17 +295,33 @@ private:
 	};
 
 	
-	void _read_graph(std::istream& is, std::ostream& os);
+	void _read_ops_and_report(std::istream& is, std::ostream& os);
+
 	
 	void _topologize(Sfxt& sfxt, size_t root) const;
 
 	void _build_sfxt(Sfxt& sfxt) const;
-	
+
+
+	/**
+	@brief Find the suffix tree rooted at super target
+	NOTE: a global suffix tree
+	*/
+	void _sfxt_cache();
+
 
 	/**
 	@brief Find the suffix tree rooted at the vertex
 	*/
 	Sfxt _sfxt_cache(const Point& p) const;
+	
+	/**
+	@brief Spur from the path. Scan the current critical path
+	and spur along the path to generate other candidates
+	NOTE: using a global suffix tree
+	*/
+	void _spur_global(size_t K, PathHeap& heap);
+
 
 	/**
 	@brief Spur from the path. Scan the current critical path
@@ -330,8 +359,6 @@ private:
 		std::array<std::optional<float>, 8>&& ws);
 	
 	void _remove_edge(Edge& e);
-	
-
 
 	/**
 	@brief encode an edge with different weight selections
@@ -367,6 +394,10 @@ private:
 	// anything that need access to vertices would store a pointer to it
 	std::unordered_map<std::string, Vert> _name2v;
 
+	// unordered map:
+	// mapping from edge name to std::list<Edge>::iterator
+	std::unordered_map<std::string, std::list<Edge>::iterator> _name2eit;
+	
 	// ordered pointer storage
 	std::vector<Vert*> _vptrs;
 
@@ -378,9 +409,7 @@ private:
 	// NOTE: free list is defined in this object
 	IdxGen _idxgen_vert;
 
-
 	// index generator : edges
-	// NOTE: free list is defined in this object
 	IdxGen _idxgen_edge;
 
 
@@ -388,9 +417,11 @@ private:
 	tf::Taskflow _taskflow;
 	tf::Executor _executor;
 
-	// unordered map:
-	// mapping from edge name to std::list<Edge>::iterator
-	std::unordered_map<std::string, std::list<Edge>::iterator> _name2eit;
+	// list to record to-be-updated vertices 
+	std::vector<size_t> _to_update;
+
+	// global suffix tree with a super target
+	Sfxt _global_sfxt;
 };
 
 /**
@@ -467,7 +498,6 @@ public:
 private:
 	PathComp _comp;
 	std::vector<std::unique_ptr<Path>> _paths;
-
 };
 
 

@@ -60,7 +60,7 @@ std::string Edge::name() const {
 // Ink Implementations
 // ------------------------
 
-void Ink::read_graph(const std::string& in, const std::string& out) {
+void Ink::read_ops_and_report(const std::string& in, const std::string& out) {
 	std::ifstream ifs;
 	ifs.open(in);
 	if (!ifs) {
@@ -69,7 +69,7 @@ void Ink::read_graph(const std::string& in, const std::string& out) {
 
 	std::ofstream ofs(out);
 
-	_read_graph(ifs, ofs);
+	_read_ops_and_report(ifs, ofs);
 }
 
 
@@ -94,6 +94,7 @@ Vert& Ink::insert_vertex(const std::string& name) {
 		// if the index generated goes out of range, resize _vptrs 
 		if (id + 1 > _vptrs.size()) {
 			_vptrs.resize(id + 1, nullptr);
+			
 		}
 
 		_vptrs[id] = &(iter->second); 
@@ -120,6 +121,15 @@ void Ink::remove_vertex(const std::string& name) {
 	auto& v = itr->second;
 
 	for (auto e : v.fanin) {
+		// record each of e's fanin vertex
+		// they need to be re-relaxed during 
+		// incrmental report
+		if (!_vptrs[e->from.id]->is_in_update_list) {
+			_to_update.emplace_back(e->from.id);
+			_vptrs[e->from.id]->is_in_update_list = true;
+		}
+		
+		
 		// remove edge pointer mapping and recycle free id
 		_eptrs[e->id] = nullptr;
 		_idxgen_edge.recycle(e->id);
@@ -128,6 +138,14 @@ void Ink::remove_vertex(const std::string& name) {
 		_edges.erase(*e->satellite);
 	}
 	for (auto e : v.fanout) {
+		// record each of e's fanout vertex
+		// they need to be re-relaxed during 
+		// incrmental report
+		if (!_vptrs[e->to.id]->is_in_update_list) {
+			_to_update.emplace_back(e->to.id);
+			_vptrs[e->to.id]->is_in_update_list = true;
+		}
+
 		_eptrs[e->id] = nullptr;
 		_idxgen_edge.recycle(e->id);
 		e->to.remove_fanin(*e);
@@ -179,7 +197,15 @@ Edge& Ink::insert_edge(
 		for (size_t i = 0; i < e.weights.size(); i++) {
 			e.weights[i] = ws[i];
 		}
-
+			
+		// record the to vertex of this edge
+		// when we do incremental report, we
+		// need to perform relaxation on this
+		// vertex again
+		if (!_vptrs[e.to.id]->is_in_update_list) {
+			_to_update.emplace_back(e.to.id);
+			_vptrs[e.to.id]->is_in_update_list = true;
+		}
 		return e;
 	}
 	else {
@@ -208,17 +234,18 @@ Edge& Ink::insert_edge(
 
 		// update the edge name to iterator mapping
 		_name2eit.emplace(ename, _edges.begin());
-
+		
+		// record the to vertex of this edge
+		// when we do incremental report, we
+		// need to perform relaxation on this
+		// vertex again
+		if (!_vptrs[e.to.id]->is_in_update_list) {
+			_to_update.emplace_back(e.to.id);
+			_vptrs[e.to.id]->is_in_update_list = true;
+		}
 		return e; 
 	}
 
-
-	// TODO: study emplace
-	//	auto e = _edges.emplace(
-	//		std::piecewise_construct,
-	//		std::forward_as_tuple(from, to),
-  //    std::forward_as_tuple(from_v, to_v, _edges.size(), std::move(vec))
-	//	);
 
 }
 
@@ -253,7 +280,6 @@ std::vector<Path> Ink::report(size_t K) {
 	
 	}
 
-
 	// incremental: clear endpoint storage
 	_endpoints.clear();
 
@@ -280,6 +306,34 @@ std::vector<Path> Ink::report(size_t K) {
 	_executor.run(_taskflow).wait();
 	_taskflow.clear();
 
+	return heap.extract();
+}
+
+std::vector<Path> Ink::report_global(size_t K) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+	PathHeap heap;
+	_spur_global(K, heap);	
+	
+	
 	return heap.extract();
 }
 
@@ -347,12 +401,9 @@ void Ink::dump(std::ostream& os) const {
 			os << "ptr to null\n";
 		}
 	}
-
-
-
 }
 
-void Ink::_read_graph(std::istream& is, std::ostream& os) {
+void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 	std::string buf;
 	while (true) {
 		is >> buf;
@@ -428,6 +479,20 @@ Edge& Ink::_insert_edge(
 
 
 void Ink::_remove_edge(Edge& e) {
+	// record both from and to of this edge
+	// they both need to be re-relaxed when we
+	// run incremental report
+	if (!_vptrs[e.from.id]->is_in_update_list) {
+		_to_update.emplace_back(e.from.id);
+		_vptrs[e.from.id]->is_in_update_list = true;
+	}
+
+	if (!_vptrs[e.to.id]->is_in_update_list) {
+		_to_update.emplace_back(e.to.id);
+		_vptrs[e.to.id]->is_in_update_list = true;
+	}
+	
+	
 	// update fanout of v_from, fanin of v_to
 	e.from.remove_fanout(e);
 	e.to.remove_fanin(e);
@@ -461,7 +526,15 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 	// NOTE: super source and target are implicitly generated
 	assert(sfxt.topo_order.empty());
 	// generate topological order of vertices
-	_topologize(sfxt, sfxt.T);
+	if (sfxt.S >= sfxt.T) {
+		_topologize(sfxt, sfxt.T);
+	}
+	else {
+		// topologizing for a global sfxt
+		for (const auto& ept : _endpoints) {
+			_topologize(sfxt, ept.vert.id);
+		}
+	}
 
 	assert(!sfxt.topo_order.empty());
 
@@ -477,6 +550,7 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 			sfxt.srcs.try_emplace(v, std::nullopt);
 			continue;
 		}
+		
 
 		for (auto e : v_ptr->fanin) {
 			auto w_sel = e->min_valid_weight();
@@ -489,6 +563,29 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 		}
 
 	}	
+
+}
+
+void Ink::_sfxt_cache() {
+	auto S = _vptrs.size();
+	auto T = _vptrs.size() + 1;
+	
+	_global_sfxt = Sfxt(S, T);
+	assert(!_global_sfxt.dists[T]);
+	_global_sfxt.dists[T] = 0.0f;
+
+	// relax from destinations to super target
+	for (auto& p : _endpoints) {
+		_global_sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
+	}
+
+	_build_sfxt(_global_sfxt);
+	
+	// relax from super source to sources
+	for (auto& [src, w] : _global_sfxt.srcs) {
+		w = 0.0f;
+		_global_sfxt.relax(S, src, std::nullopt, *w);
+	}
 
 }
 
@@ -530,6 +627,61 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 	return pfxt;
 }
 
+void Ink::_spur_global(size_t K, PathHeap& heap) {
+	_sfxt_cache();
+	auto pfxt = _pfxt_cache(_global_sfxt);
+
+//	for (size_t k = 0; k < K; k++) {
+//		auto node = pfxt.pop();
+//		// no more paths to generate
+//		if (node == nullptr) {
+//			break;
+//		}		
+//
+//		if (heap.size() >= K) {
+//			break;
+//		}
+//
+//		// recover the complete path
+//		auto path = std::make_unique<Path>(0.0f, nullptr);
+//		_recover_path(*path, _global_sfxt, node, _global_sfxt.T);
+//
+//		path->weight = path->back().dist;
+//		if (path->size() > 1) {
+//			heap.push(std::move(path));
+//			heap.fit(K);
+//		}
+//
+//		// expand search space
+//		_spur(pfxt, *node);
+//	}
+
+	while (!pfxt.num_nodes() == 0) {
+		auto node = pfxt.pop();
+		// no more paths to generate
+		if (node == nullptr) {
+			break;
+		}		
+
+		if (heap.size() >= K) {
+			break;
+		}
+
+		// recover the complete path
+		auto path = std::make_unique<Path>(0.0f, nullptr);
+		_recover_path(*path, _global_sfxt, node, _global_sfxt.T);
+
+		path->weight = path->back().dist;
+		if (path->size() > 1) {
+			heap.push(std::move(path));
+			heap.fit(K);
+		}
+
+		// expand search space
+		_spur(pfxt, *node);
+	}
+
+} 
 
 void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 	auto sfxt = _sfxt_cache(endpt);
@@ -571,7 +723,7 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 	auto u = pfx.to;
 
 	while (u != pfxt.sfxt.T) {
-		assert(pfxt.sfxt.links[u]);
+		//assert(pfxt.sfxt.links[u]);
 		auto u_ptr = _vptrs[u];
 
 		for (auto edge : u_ptr->fanout) {
@@ -582,8 +734,6 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 
 				// skip if the edge goes outside of the suffix tree
 				// which is unreachable
-				// TODO: this case won't exist, if I do a global
-				// suffix tree, (starting from a super target)
 				auto v = edge->to.id;
 				if (!pfxt.sfxt.dists[v]) {
 					continue;
@@ -592,10 +742,12 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 				// skip if the edge belongs to the suffix 
 				// NOTE: we're detouring, so we don't want to
 				// go on the same paths explored by the suffix tree
-				if (_encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+				if (pfxt.sfxt.links[u] &&
+						_encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
 					continue;
 				}
-				
+			
+
 				auto w = *edge->weights[w_sel];
 				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
 				

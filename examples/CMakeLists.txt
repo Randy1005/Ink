@@ -25,9 +25,9 @@ add_executable(simple_timing ${INK_EXAMPLE_DIR}/simple/simple.cpp)
 # add_executable(c17_slack_timing ${INK_EXAMPLE_DIR}/c17_slack/c17_slack.cpp)
 # 
 # 
-# # example: c432.cpp
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c432)
-# add_executable(c432_timing ${INK_EXAMPLE_DIR}/c432/c432.cpp)
+# example: c432.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c432)
+add_executable(c432_timing ${INK_EXAMPLE_DIR}/c432/c432.cpp)
 # 
 # example: vga_lcd.cpp
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/vga_lcd)
@@ -40,7 +40,7 @@ list(APPEND INK_EXAMPLES
 #   s27_timing
 #   c3_slack_timing
 #   c17_slack_timing
-#   c432_timing
+  c432_timing
   vga_lcd_timing
 )
 

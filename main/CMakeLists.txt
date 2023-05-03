@@ -4,14 +4,8 @@ add_executable(Ink main.cpp)
 target_compile_features(ink INTERFACE cxx_std_20)
 target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
 
-
-# include and static libary linking
-# target_link_libraries(qsat LINK_PUBLIC ${PROJECT_SOURCE_DIR}/libmetis/libmetis.a
-#                           LINK_PUBLIC ${PROJECT_SOURCE_DIR}/libmetis/libGKlib.a
-#                           LINK_PUBLIC ${PROJECT_SOURCE_DIR}/libbliss/libbliss_static.a)
-
 target_link_libraries(Ink
-  LINK_PUBLIC ink 
+  LINK_PUBLIC ink
 )
 
 target_include_directories(Ink PRIVATE ${PROJECT_SOURCE_DIR})
