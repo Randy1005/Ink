@@ -124,7 +124,7 @@ void Ink::remove_vertex(const std::string& name) {
 		// record each of e's fanin vertex
 		// they need to be re-relaxed during 
 		// incrmental report
-		if (!_vptrs[e->from.id]->is_in_update_list) {
+		if (!_vptrs[e->from.id]->is_in_update_list && _global_sfxt) {
 			_to_update.emplace_back(e->from.id);
 			_vptrs[e->from.id]->is_in_update_list = true;
 		}
@@ -141,7 +141,7 @@ void Ink::remove_vertex(const std::string& name) {
 		// record each of e's fanout vertex
 		// they need to be re-relaxed during 
 		// incrmental report
-		if (!_vptrs[e->to.id]->is_in_update_list) {
+		if (!_vptrs[e->to.id]->is_in_update_list && _global_sfxt) {
 			_to_update.emplace_back(e->to.id);
 			_vptrs[e->to.id]->is_in_update_list = true;
 		}
@@ -183,12 +183,6 @@ Edge& Ink::insert_edge(
 	const std::string ename = from + "->" + to;
 	auto itr = _name2eit.find(ename);
 
-
-	//auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
-	//	return (e.from.name == from) && (e.to.name == to);
-	//});
-
-
 	if (itr != _name2eit.end()) {
 		// edge exists
 		auto& e = *itr->second;
@@ -201,8 +195,10 @@ Edge& Ink::insert_edge(
 		// record the to vertex of this edge
 		// when we do incremental report, we
 		// need to perform relaxation on this
-		// vertex again
-		if (!_vptrs[e.to.id]->is_in_update_list) {
+		// vertex again (only if this this vertex
+		// is not already marked as to be updated AND
+		// we have an existing suffix tree)
+		if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
 			_to_update.emplace_back(e.to.id);
 			_vptrs[e.to.id]->is_in_update_list = true;
 		}
@@ -239,7 +235,7 @@ Edge& Ink::insert_edge(
 		// when we do incremental report, we
 		// need to perform relaxation on this
 		// vertex again
-		if (!_vptrs[e.to.id]->is_in_update_list) {
+		if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
 			_to_update.emplace_back(e.to.id);
 			_vptrs[e.to.id]->is_in_update_list = true;
 		}
@@ -254,10 +250,6 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 	const std::string ename = from + "->" + to;
 	auto itr = _name2eit.find(ename);
 	
-	//auto itr = std::find_if(_edges.begin(), _edges.end(), [&](const Edge& e) {
-	//	return e.from.name == from && e.to.name == to;
-	//});
-
 	if (itr == _name2eit.end()) {
 		// edge non existent, nothing to do
 		return;
@@ -306,6 +298,7 @@ std::vector<Path> Ink::report(size_t K) {
 	_executor.run(_taskflow).wait();
 	_taskflow.clear();
 
+	_clear_update_list();		
 	return heap.extract();
 }
 
@@ -332,8 +325,10 @@ std::vector<Path> Ink::report_global(size_t K) {
 
 	PathHeap heap;
 	_spur_global(K, heap);	
-	
-	
+
+	// report complete, clear the update list
+	_clear_update_list();		
+
 	return heap.extract();
 }
 
@@ -482,12 +477,12 @@ void Ink::_remove_edge(Edge& e) {
 	// record both from and to of this edge
 	// they both need to be re-relaxed when we
 	// run incremental report
-	if (!_vptrs[e.from.id]->is_in_update_list) {
+	if (!_vptrs[e.from.id]->is_in_update_list && _global_sfxt) {
 		_to_update.emplace_back(e.from.id);
 		_vptrs[e.from.id]->is_in_update_list = true;
 	}
 
-	if (!_vptrs[e.to.id]->is_in_update_list) {
+	if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
 		_to_update.emplace_back(e.to.id);
 		_vptrs[e.to.id]->is_in_update_list = true;
 	}
@@ -569,24 +564,48 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 void Ink::_sfxt_cache() {
 	auto S = _vptrs.size();
 	auto T = _vptrs.size() + 1;
-	
-	_global_sfxt = Sfxt(S, T);
-	assert(!_global_sfxt.dists[T]);
-	_global_sfxt.dists[T] = 0.0f;
 
-	// relax from destinations to super target
-	for (auto& p : _endpoints) {
-		_global_sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
+	if (!_global_sfxt) {
+		// it's our first time constructing a global sfxt
+		_global_sfxt = Sfxt(S, T);
+		auto& sfxt = *_global_sfxt;
+		assert(!sfxt.dists[T]);
+		sfxt.dists[T] = 0.0f;
+
+		// relax from destinations to super target
+		for (auto& p : _endpoints) {
+			sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
+		}
+
+		_build_sfxt(sfxt);
+		
+		// relax from super source to sources
+		for (auto& [src, w] : sfxt.srcs) {
+			w = 0.0f;
+			sfxt.relax(S, src, std::nullopt, *w);
+		}
 	}
+	else {
+		// we have an existing suffix tree
+		std::cout << "glob sfxt exists, should update\n";
+		auto& sfxt = *_global_sfxt;
+		sfxt = Sfxt(S, T);
+		assert(!sfxt.dists[T]);
+		sfxt.dists[T] = 0.0f;
 
-	_build_sfxt(_global_sfxt);
-	
-	// relax from super source to sources
-	for (auto& [src, w] : _global_sfxt.srcs) {
-		w = 0.0f;
-		_global_sfxt.relax(S, src, std::nullopt, *w);
+		// relax from destinations to super target
+		for (auto& p : _endpoints) {
+			sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
+		}
+
+		_build_sfxt(sfxt);
+		
+		// relax from super source to sources
+		for (auto& [src, w] : sfxt.srcs) {
+			w = 0.0f;
+			sfxt.relax(S, src, std::nullopt, *w);
+		}
 	}
-
 }
 
 Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
@@ -629,32 +648,8 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 
 void Ink::_spur_global(size_t K, PathHeap& heap) {
 	_sfxt_cache();
-	auto pfxt = _pfxt_cache(_global_sfxt);
-
-//	for (size_t k = 0; k < K; k++) {
-//		auto node = pfxt.pop();
-//		// no more paths to generate
-//		if (node == nullptr) {
-//			break;
-//		}		
-//
-//		if (heap.size() >= K) {
-//			break;
-//		}
-//
-//		// recover the complete path
-//		auto path = std::make_unique<Path>(0.0f, nullptr);
-//		_recover_path(*path, _global_sfxt, node, _global_sfxt.T);
-//
-//		path->weight = path->back().dist;
-//		if (path->size() > 1) {
-//			heap.push(std::move(path));
-//			heap.fit(K);
-//		}
-//
-//		// expand search space
-//		_spur(pfxt, *node);
-//	}
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
 
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
@@ -669,7 +664,7 @@ void Ink::_spur_global(size_t K, PathHeap& heap) {
 
 		// recover the complete path
 		auto path = std::make_unique<Path>(0.0f, nullptr);
-		_recover_path(*path, _global_sfxt, node, _global_sfxt.T);
+		_recover_path(*path, sfxt, node, sfxt.T);
 
 		path->weight = path->back().dist;
 		if (path->size() > 1) {

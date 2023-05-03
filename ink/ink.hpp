@@ -386,6 +386,18 @@ private:
 		return std::make_tuple(_eptrs[idx % _eptrs.size()], idx / _eptrs.size());
 	}
 
+	/**
+	@brief clears the update list for next incremental action
+	*/
+	inline void _clear_update_list() {
+		while (!_to_update.empty()) {
+			auto v = _to_update.back();
+			if (_vptrs[v]) {
+				_vptrs[v]->is_in_update_list = false;
+			}
+			_to_update.pop_back();
+		}
+	}
 
 	std::vector<Point> _endpoints;
 
@@ -421,7 +433,7 @@ private:
 	std::vector<size_t> _to_update;
 
 	// global suffix tree with a super target
-	Sfxt _global_sfxt;
+	std::optional<Sfxt> _global_sfxt{std::nullopt};
 };
 
 /**
