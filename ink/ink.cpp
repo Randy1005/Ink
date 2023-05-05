@@ -479,6 +479,8 @@ void Ink::_remove_edge(Edge& e) {
 	// run incremental report
 	if (!_vptrs[e.from.id]->is_in_update_list && _global_sfxt) {
 		_to_update.emplace_back(e.from.id);
+		(*_global_sfxt).links[e.from.id].reset();
+		(*_global_sfxt).dists[e.from.id].reset();
 		_vptrs[e.from.id]->is_in_update_list = true;
 	}
 
@@ -486,8 +488,7 @@ void Ink::_remove_edge(Edge& e) {
 		_to_update.emplace_back(e.to.id);
 		_vptrs[e.to.id]->is_in_update_list = true;
 	}
-	
-	
+
 	// update fanout of v_from, fanin of v_to
 	e.from.remove_fanout(e);
 	e.to.remove_fanin(e);
@@ -499,6 +500,7 @@ void Ink::_remove_edge(Edge& e) {
 	// remove this edge from the owner storage
 	assert(e.satellite);
 	_edges.erase(*e.satellite);
+
 }
 
 void Ink::_topologize(Sfxt& sfxt, size_t v) const {	
@@ -521,7 +523,7 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 	// NOTE: super source and target are implicitly generated
 	assert(sfxt.topo_order.empty());
 	// generate topological order of vertices
-	if (sfxt.S >= sfxt.T) {
+	if (sfxt.S > sfxt.T) {
 		_topologize(sfxt, sfxt.T);
 	}
 	else {
@@ -562,23 +564,25 @@ void Ink::_build_sfxt(Sfxt& sfxt) const {
 }
 
 void Ink::_sfxt_cache() {
-	auto S = _vptrs.size();
-	auto T = _vptrs.size() + 1;
+	
+	// now id 0 and 1 are reserved for super source and super target
+	size_t S = 0, T = 1;
 
 	if (!_global_sfxt) {
 		// it's our first time constructing a global sfxt
-		_global_sfxt = Sfxt(S, T);
+		_global_sfxt = Sfxt(S, T, _vptrs.size());
+		
 		auto& sfxt = *_global_sfxt;
 		assert(!sfxt.dists[T]);
 		sfxt.dists[T] = 0.0f;
-
+		
+		_build_sfxt(sfxt);
+		
 		// relax from destinations to super target
 		for (auto& p : _endpoints) {
 			sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
 		}
 
-		_build_sfxt(sfxt);
-		
 		// relax from super source to sources
 		for (auto& [src, w] : sfxt.srcs) {
 			w = 0.0f;
@@ -587,19 +591,74 @@ void Ink::_sfxt_cache() {
 	}
 	else {
 		// we have an existing suffix tree
-		std::cout << "glob sfxt exists, should update\n";
 		auto& sfxt = *_global_sfxt;
-		sfxt = Sfxt(S, T);
-		assert(!sfxt.dists[T]);
-		sfxt.dists[T] = 0.0f;
+		size_t sz = _vptrs.size();
+		sfxt.dists.resize(sz);
+		sfxt.successors.resize(sz);
+		sfxt.links.resize(sz);
+	
+		// TODO: does topological order matter when we update?
 
+		std::queue<size_t> q;
+		std::vector<bool> checked(_vptrs.size(), false);
+		for (const auto& vt : _to_update) {
+			q.push(vt);
+			while (!q.empty()) {
+				auto v = q.front();
+				q.pop();
+				
+				auto vptr = _vptrs[v];
+				if (vptr == nullptr) {
+					continue;
+				}
+
+				if (vptr->is_dst()) {
+					sfxt.links[v].reset();
+					sfxt.successors[v] = sfxt.T;
+				}
+				else {
+					for (auto e : vptr->fanout) {
+						auto t = e->to.id;
+						auto w_sel = e->min_valid_weight();
+						if (w_sel != NUM_WEIGHTS) {
+							auto d = *e->weights[w_sel];
+							sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
+						}
+
+					}
+				}
+
+				if (vptr->is_src()) {
+					sfxt.srcs.try_emplace(v, std::nullopt);
+					continue;
+				}
+
+
+
+				if (!checked[v]) {
+					checked[v] = true;
+					for (auto e : vptr->fanin) {
+						auto u = e->from.id;
+						auto w_sel = e->min_valid_weight();
+						if (!checked[u]) {
+							if (w_sel != NUM_WEIGHTS) {
+								sfxt.dists[u].reset();
+								auto d = *e->weights[w_sel];
+								sfxt.relax(u, v, _encode_edge(*e, w_sel), d);
+								q.push(u);
+							}
+						}
+					}
+				}
+
+			}
+		}
+			
 		// relax from destinations to super target
 		for (auto& p : _endpoints) {
 			sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
 		}
 
-		_build_sfxt(sfxt);
-		
 		// relax from super source to sources
 		for (auto& [src, w] : sfxt.srcs) {
 			w = 0.0f;
@@ -612,7 +671,7 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 	auto S = _vptrs.size();
 	auto to = p.vert.id;
 
-	Sfxt sfxt(S, to);
+	Sfxt sfxt(S, to, S + 1);
 
 	assert(!sfxt.dists[to]);
 	sfxt.dists[to] = 0.0f;
@@ -689,12 +748,8 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 			break;
 		}		
 
-		// NOTE: question ...
-		// why do we stop when max-weight path in heap 
-		// is smaller than pfxt node weight?
-		// NOTE: is it because there's no chance of finding a path with
-		// less weight?
-		if (heap.size() >= K/* && heap.top()->weight <= node->weight */) {
+
+		if (heap.size() >= K) {
 			break;
 		}
 
@@ -811,12 +866,11 @@ void Ink::_recover_path(
 // NOTE:
 // OpenTimer does a resize_to_fit, why not simply resize(N)?
 
-Ink::Sfxt::Sfxt(size_t S, size_t T) :
+Ink::Sfxt::Sfxt(size_t S, size_t T, size_t sz) :
 	S{S},
 	T{T}
 {
 	// resize suffix tree storages
-	size_t sz = std::max(S, T) + 1;
 	visited.resize(sz);
 	dists.resize(sz);
 	successors.resize(sz);

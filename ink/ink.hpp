@@ -1,6 +1,7 @@
 #pragma once
 #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
+#include <queue>
 
 #define NUM_WEIGHTS 8
 
@@ -158,12 +159,12 @@ private:
 	*/
 	struct Sfxt {
 		Sfxt() = default;
-		Sfxt(size_t S, size_t T);
+		Sfxt(size_t S, size_t T, size_t sz);
 
 		inline bool relax(
 			size_t u, 
 			size_t v, 
-			std::optional<size_t> e, 
+			std::optional<size_t> e,
 			float d);
 		
 		/**
@@ -181,11 +182,14 @@ private:
 		// sources
 		std::unordered_map<size_t, std::optional<float>> srcs;
 
-		// sources
-		std::unordered_map<size_t, std::optional<float>> dsts;
-		
 		// topological order of vertices
 		std::vector<size_t> topo_order; 
+
+		// topological order indices
+		// e.g.
+		// topo_order = 4 3 1 2 0
+		// topo_idx		= 4 2 1 3 0
+		// std::vector<size_t> topo_idxs;
 
 		// to record if visited in topological sort
 		std::vector<std::optional<bool>> visited;
@@ -272,7 +276,10 @@ private:
 	@brief Index Generator
 	*/
 	struct IdxGen {
-		IdxGen() = default;
+		IdxGen(size_t c_init) :
+			counter{c_init}
+		{
+		}
 
 		inline size_t get() {
 			if (freelist.empty()) {
@@ -302,6 +309,7 @@ private:
 
 	void _build_sfxt(Sfxt& sfxt) const;
 
+	void _update_sfxt(Sfxt& sfxt) const;
 
 	/**
 	@brief Find the suffix tree rooted at super target
@@ -419,10 +427,10 @@ private:
 
 	// index generator : vertices
 	// NOTE: free list is defined in this object
-	IdxGen _idxgen_vert;
+	IdxGen _idxgen_vert{2};
 
 	// index generator : edges
-	IdxGen _idxgen_edge;
+	IdxGen _idxgen_edge{0};
 
 
 	// taskflow object and executor
