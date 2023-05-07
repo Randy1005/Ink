@@ -185,12 +185,6 @@ private:
 		// topological order of vertices
 		std::vector<size_t> topo_order; 
 
-		// topological order indices
-		// e.g.
-		// topo_order = 4 3 1 2 0
-		// topo_idx		= 4 2 1 3 0
-		// std::vector<size_t> topo_idxs;
-
 		// to record if visited in topological sort
 		std::vector<std::optional<bool>> visited;
 

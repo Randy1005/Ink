@@ -9,6 +9,7 @@ list(APPEND INK_UNITTESTS
   chains
   binary_trees
   glob_sfxt
+  update_sfxt 
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)

@@ -479,8 +479,6 @@ void Ink::_remove_edge(Edge& e) {
 	// run incremental report
 	if (!_vptrs[e.from.id]->is_in_update_list && _global_sfxt) {
 		_to_update.emplace_back(e.from.id);
-		(*_global_sfxt).links[e.from.id].reset();
-		(*_global_sfxt).dists[e.from.id].reset();
 		_vptrs[e.from.id]->is_in_update_list = true;
 	}
 
@@ -571,7 +569,6 @@ void Ink::_sfxt_cache() {
 	if (!_global_sfxt) {
 		// it's our first time constructing a global sfxt
 		_global_sfxt = Sfxt(S, T, _vptrs.size());
-		
 		auto& sfxt = *_global_sfxt;
 		assert(!sfxt.dists[T]);
 		sfxt.dists[T] = 0.0f;
@@ -596,64 +593,101 @@ void Ink::_sfxt_cache() {
 		sfxt.dists.resize(sz);
 		sfxt.successors.resize(sz);
 		sfxt.links.resize(sz);
-	
-		// TODO: does topological order matter when we update?
-
-		std::queue<size_t> q;
-		std::vector<bool> checked(_vptrs.size(), false);
-		for (const auto& vt : _to_update) {
-			q.push(vt);
-			while (!q.empty()) {
-				auto v = q.front();
-				q.pop();
-				
-				auto vptr = _vptrs[v];
-				if (vptr == nullptr) {
-					continue;
-				}
-
-				if (vptr->is_dst()) {
-					sfxt.links[v].reset();
-					sfxt.successors[v] = sfxt.T;
-				}
-				else {
-					for (auto e : vptr->fanout) {
-						auto t = e->to.id;
-						auto w_sel = e->min_valid_weight();
-						if (w_sel != NUM_WEIGHTS) {
-							auto d = *e->weights[w_sel];
-							sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
-						}
-
-					}
-				}
-
-				if (vptr->is_src()) {
-					sfxt.srcs.try_emplace(v, std::nullopt);
-					continue;
-				}
-
-
-
-				if (!checked[v]) {
-					checked[v] = true;
-					for (auto e : vptr->fanin) {
-						auto u = e->from.id;
-						auto w_sel = e->min_valid_weight();
-						if (!checked[u]) {
-							if (w_sel != NUM_WEIGHTS) {
-								sfxt.dists[u].reset();
-								auto d = *e->weights[w_sel];
-								sfxt.relax(u, v, _encode_edge(*e, w_sel), d);
-								q.push(u);
-							}
-						}
-					}
-				}
-
+		sfxt.srcs.clear();
+		
+		// update sources
+		for (auto v : _vptrs) {
+			if (v != nullptr && v->is_src()) {
+				sfxt.srcs.try_emplace(v->id, std::nullopt);
 			}
 		}
+	
+		// find the affected region of vertices
+		std::vector<bool> checked(_vptrs.size(), false);
+		std::vector<size_t> affected;
+		for (const auto& vt : _to_update) {
+			if (!checked[vt]) {
+				// do a DFS to traverse all affected vertices of vt
+				// DFS would essentially generate the topological order
+				// of the affected vertices
+				std::stack<size_t> stk;
+				stk.push(vt);
+				while (!stk.empty()) {
+					auto v = stk.top();
+					stk.pop();
+					auto vptr = _vptrs[v];
+					if (vptr == nullptr) {
+						continue;
+					}
+					
+					if (!checked[v]) {
+						checked[v] = true;
+						affected.emplace_back(v);
+						for (auto e : vptr->fanin) {
+							auto u = e->from.id;
+							stk.push(u);
+						}
+					}
+
+				}
+			}
+		}
+		
+		// iterate through the affected vertices and re-relax
+		for (const auto& v : affected) {
+			auto vptr = _vptrs[v];
+			if (vptr == nullptr) {
+				continue;
+			}
 			
+			
+			if (vptr->is_dst()) {
+				sfxt.links[v].reset();
+				sfxt.successors[v] = sfxt.T;
+			}
+
+			if (sfxt.links[v] && _eptrs[*sfxt.links[v]] == nullptr) {
+				// the linking edge of v to its successor has been
+				// removed, we need to do an additional relaxation 
+				// from v to its fanouts (essentially finding a new
+				// link for v)
+				sfxt.dists[v].reset();
+				for (auto e : vptr->fanout) {
+					auto t = e->to.id;
+					auto w_sel = e->min_valid_weight();
+					if (w_sel != NUM_WEIGHTS) {
+						auto d = *e->weights[w_sel];
+						sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
+					}
+				}
+			
+			}
+			
+			if (vptr->is_src()) {
+				sfxt.srcs.try_emplace(v, std::nullopt);
+				continue;
+			}
+			
+			// for each of v's fanin u we redo relaxation
+			for (auto e : vptr->fanin) {
+				auto u = e->from.id;
+				auto w_sel = e->min_valid_weight();
+				if (w_sel != NUM_WEIGHTS) {
+					auto d = *e->weights[w_sel];
+					
+					if (auto u_succ = sfxt.successors[u];
+							u_succ == v || u_succ == sfxt.T) {
+						sfxt.dists[u].reset();
+					}
+
+
+					sfxt.relax(u, v, _encode_edge(*e, w_sel), d);
+				}
+			}	
+			
+		}	
+		
+				
 		// relax from destinations to super target
 		for (auto& p : _endpoints) {
 			sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
