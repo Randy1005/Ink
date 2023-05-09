@@ -164,7 +164,7 @@ private:
 		inline bool relax(
 			size_t u, 
 			size_t v, 
-			std::optional<size_t> e,
+			std::optional<std::pair<size_t, size_t>> l,
 			float d);
 		
 		/**
@@ -183,7 +183,7 @@ private:
 		std::unordered_map<size_t, std::optional<float>> srcs;
 
 		// topological order of vertices
-		std::vector<size_t> topo_order; 
+		std::vector<size_t> topo_order;
 
 		// to record if visited in topological sort
 		std::vector<std::optional<bool>> visited;
@@ -194,8 +194,8 @@ private:
 		// successors
 		std::vector<std::optional<size_t>> successors;
 	
-		// links (edge ids)
-		std::vector<std::optional<size_t>> links;
+		// links (edge id, weight selection) 
+		std::vector<std::optional<std::pair<size_t, size_t>>> links;
 	};
 
 
@@ -209,14 +209,14 @@ private:
 			size_t t, 
 			const Edge* e, 
 			const PfxtNode* p,
-			std::optional<size_t> encoded_e);
+			std::optional<std::pair<size_t, size_t>> l);
 
 		float detour_cost;
 		size_t from;
 		size_t to;
 		const Edge* edge{nullptr};
 		const PfxtNode* parent{nullptr};
-		std::optional<size_t> encoded_edge;
+		std::optional<std::pair<size_t, size_t>> link;
 	};
 
 
@@ -246,7 +246,7 @@ private:
 			size_t t,
 			const Edge* e,
 			const PfxtNode* p,
-			std::optional<size_t> encoded_e);	
+			std::optional<std::pair<size_t, size_t>> l);	
 		
 		PfxtNode* pop();
 		
@@ -378,7 +378,8 @@ private:
 		... and so on
 	*/
 	inline auto _encode_edge(const Edge& e, size_t w_sel) const {
-		return w_sel * _eptrs.size() + e.id;  	
+		// return w_sel * _eptrs.size() + e.id;  	
+		return std::make_pair(e.id, w_sel);
 	}
 
 	/**
@@ -386,6 +387,13 @@ private:
 	*/
 	inline auto _decode_edge(size_t idx) const {
 		return std::make_tuple(_eptrs[idx % _eptrs.size()], idx / _eptrs.size());
+	}
+
+	/**
+	@brief returns a tuple {ptr_to_edge, weight_idx} 
+	*/
+	inline auto _decode_edge(const std::pair<size_t, size_t>& p) const {
+		return std::make_tuple(_eptrs[p.first], p.second);
 	}
 
 	/**
@@ -399,6 +407,26 @@ private:
 			}
 			_to_update.pop_back();
 		}
+	}
+
+
+	/**
+	@brief depth first search to generate topological order
+	*/
+	inline void _dfs(
+		size_t v, 
+		std::deque<size_t>& tpg, 
+		std::vector<bool>& visited) {
+		visited[v] = true;
+		auto vptr = _vptrs[v];
+		for (const auto e : vptr->fanin) {
+			auto u = e->from.id;
+			if (!visited[u]) {
+				_dfs(u, tpg, visited);
+			}
+		}
+
+		tpg.push_front(v);
 	}
 
 	std::vector<Point> _endpoints;

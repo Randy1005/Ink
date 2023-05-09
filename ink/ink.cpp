@@ -191,17 +191,22 @@ Edge& Ink::insert_edge(
 		for (size_t i = 0; i < e.weights.size(); i++) {
 			e.weights[i] = ws[i];
 		}
-			
-		// record the to vertex of this edge
-		// when we do incremental report, we
-		// need to perform relaxation on this
-		// vertex again (only if this this vertex
-		// is not already marked as to be updated AND
-		// we have an existing suffix tree)
-		if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
-			_to_update.emplace_back(e.to.id);
-			_vptrs[e.to.id]->is_in_update_list = true;
+		
+		// record all fanout vertices of from
+		// they all need to re-relax
+		if (_global_sfxt) {
+			auto& sfxt = *_global_sfxt;
+			auto uptr = _vptrs[e.from.id];
+			for (const auto e : uptr->fanout) {
+				auto v = e->to.id;
+				if (!_vptrs[v]->is_in_update_list) {
+					_to_update.emplace_back(v);
+					_vptrs[v]->is_in_update_list = true;
+				}
+			}
+
 		}
+
 		return e;
 	}
 	else {
@@ -230,14 +235,21 @@ Edge& Ink::insert_edge(
 
 		// update the edge name to iterator mapping
 		_name2eit.emplace(ename, _edges.begin());
-		
-		// record the to vertex of this edge
-		// when we do incremental report, we
-		// need to perform relaxation on this
-		// vertex again
-		if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
-			_to_update.emplace_back(e.to.id);
-			_vptrs[e.to.id]->is_in_update_list = true;
+	
+
+		// record all fanout vertices of from
+		// they all need to re-relax
+		if (_global_sfxt) {
+			auto& sfxt = *_global_sfxt;
+			auto uptr = _vptrs[e.from.id];
+			for (const auto e : uptr->fanout) {
+				auto v = e->to.id;
+				if (!_vptrs[v]->is_in_update_list) {
+					_to_update.emplace_back(v);
+					_vptrs[v]->is_in_update_list = true;
+				}
+			}
+			
 		}
 		return e; 
 	}
@@ -474,22 +486,26 @@ Edge& Ink::_insert_edge(
 
 
 void Ink::_remove_edge(Edge& e) {
-	// record both from and to of this edge
-	// they both need to be re-relaxed when we
-	// run incremental report
-	if (!_vptrs[e.from.id]->is_in_update_list && _global_sfxt) {
-		_to_update.emplace_back(e.from.id);
-		_vptrs[e.from.id]->is_in_update_list = true;
-	}
-
-	if (!_vptrs[e.to.id]->is_in_update_list && _global_sfxt) {
-		_to_update.emplace_back(e.to.id);
-		_vptrs[e.to.id]->is_in_update_list = true;
-	}
-
 	// update fanout of v_from, fanin of v_to
 	e.from.remove_fanout(e);
 	e.to.remove_fanin(e);
+
+
+	// record all fanout vertices of from
+	// they all need to re-relax
+	auto uptr = _vptrs[e.from.id];
+	if (_global_sfxt) {
+		auto& sfxt = *_global_sfxt;
+		for (const auto& e : uptr->fanout) {
+			auto v = e->to.id;
+			if (!_vptrs[v]->is_in_update_list) {
+				_to_update.emplace_back(v);
+				_vptrs[v]->is_in_update_list = true;
+			}
+		}
+		sfxt.dists[e.from.id].reset();
+	}
+
 
 	// remove pointer mapping and recycle free id
 	_eptrs[e.id] = nullptr;
@@ -498,6 +514,7 @@ void Ink::_remove_edge(Edge& e) {
 	// remove this edge from the owner storage
 	assert(e.satellite);
 	_edges.erase(*e.satellite);
+
 
 }
 
@@ -589,82 +606,42 @@ void Ink::_sfxt_cache() {
 	else {
 		// we have an existing suffix tree
 		auto& sfxt = *_global_sfxt;
-		size_t sz = _vptrs.size();
+		auto sz = _vptrs.size();
 		sfxt.dists.resize(sz);
 		sfxt.successors.resize(sz);
 		sfxt.links.resize(sz);
 		sfxt.srcs.clear();
-		
+
 		// update sources
-		for (auto v : _vptrs) {
+		for (const auto v : _vptrs) {
 			if (v != nullptr && v->is_src()) {
 				sfxt.srcs.try_emplace(v->id, std::nullopt);
 			}
 		}
-	
-		// find the affected region of vertices
-		std::vector<bool> checked(_vptrs.size(), false);
-		std::vector<size_t> affected;
-		for (const auto& vt : _to_update) {
-			if (!checked[vt]) {
-				// do a DFS to traverse all affected vertices of vt
-				// DFS would essentially generate the topological order
-				// of the affected vertices
-				std::stack<size_t> stk;
-				stk.push(vt);
-				while (!stk.empty()) {
-					auto v = stk.top();
-					stk.pop();
-					auto vptr = _vptrs[v];
-					if (vptr == nullptr) {
-						continue;
-					}
-					
-					if (!checked[v]) {
-						checked[v] = true;
-						affected.emplace_back(v);
-						for (auto e : vptr->fanin) {
-							auto u = e->from.id;
-							stk.push(u);
-						}
-					}
 
-				}
+				
+		// identify the affected region of vertices
+		// generate the topological order with DFS
+		std::vector<bool> checked(_vptrs.size(), false);
+		std::deque<size_t> tpg;
+		for (const auto& v : _to_update) {
+			if (!checked[v]) {
+				_dfs(v, tpg, checked);
 			}
 		}
 		
-		// iterate through the affected vertices and re-relax
-		for (const auto& v : affected) {
+		
+		// iterate through the topological order and re-relax
+		std::vector<bool> seen(_vptrs.size(), false);
+		for (const auto& v : tpg) {
 			auto vptr = _vptrs[v];
-			if (vptr == nullptr) {
-				continue;
-			}
-			
 			
 			if (vptr->is_dst()) {
 				sfxt.links[v].reset();
 				sfxt.successors[v] = sfxt.T;
 			}
 
-			if (sfxt.links[v] && _eptrs[*sfxt.links[v]] == nullptr) {
-				// the linking edge of v to its successor has been
-				// removed, we need to do an additional relaxation 
-				// from v to its fanouts (essentially finding a new
-				// link for v)
-				sfxt.dists[v].reset();
-				for (auto e : vptr->fanout) {
-					auto t = e->to.id;
-					auto w_sel = e->min_valid_weight();
-					if (w_sel != NUM_WEIGHTS) {
-						auto d = *e->weights[w_sel];
-						sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
-					}
-				}
-			
-			}
-			
 			if (vptr->is_src()) {
-				sfxt.srcs.try_emplace(v, std::nullopt);
 				continue;
 			}
 			
@@ -673,17 +650,21 @@ void Ink::_sfxt_cache() {
 				auto u = e->from.id;
 				auto w_sel = e->min_valid_weight();
 				if (w_sel != NUM_WEIGHTS) {
-					auto d = *e->weights[w_sel];
 					
-					if (auto u_succ = sfxt.successors[u];
-							u_succ == v || u_succ == sfxt.T) {
+					// only when a vertex first sees u
+					// we reset u's distance
+					// later on, other vertices will simply
+					// relax and update u's distance
+					if (!seen[u]) {
 						sfxt.dists[u].reset();
+						seen[u] = true;
 					}
 
-
+					auto d = *e->weights[w_sel];
 					sfxt.relax(u, v, _encode_edge(*e, w_sel), d);
 				}
 			}	
+			
 			
 		}	
 		
@@ -868,9 +849,9 @@ void Ink::_recover_path(
 	// detour at non-sfxt-source nodes (internal deviation)
 	else {
 		assert(!path.empty());
-		assert(pfxt_node->encoded_edge);
+		assert(pfxt_node->link);
 		
-		auto [edge, w_sel] = _decode_edge(*pfxt_node->encoded_edge);
+		auto [edge, w_sel] = _decode_edge(*pfxt_node->link);
 		auto d = path.back().dist + *edge->weights[w_sel];
 		path.emplace_back(*u_vptr, d);
 	}
@@ -914,13 +895,13 @@ Ink::Sfxt::Sfxt(size_t S, size_t T, size_t sz) :
 inline bool Ink::Sfxt::relax(
 	size_t u, 
 	size_t v, 
-	std::optional<size_t> e, 
+	std::optional<std::pair<size_t, size_t>> l, 
 	float d) {
 	
 	if (!dists[u] || *dists[v] + d < *dists[u]) {
 		dists[u] = *dists[v] + d;
 		successors[u] = v;
-		links[u] = e; 
+		links[u] = l; 
 		return true;
 	}
 	return false;
@@ -941,13 +922,13 @@ Ink::PfxtNode::PfxtNode(
 	size_t t, 
 	const Edge* e,
 	const PfxtNode* p,
-	std::optional<size_t> encoded_e) :
+	std::optional<std::pair<size_t, size_t>> l) :
 	detour_cost{c},
 	from{f},
 	to{t},
 	edge{e},
 	parent{p},
-	encoded_edge{encoded_e}
+	link{l}
 { 
 }
 
@@ -969,8 +950,8 @@ void Ink::Pfxt::push(
 	size_t t,
 	const Edge* e,
 	const PfxtNode* p,
-	std::optional<size_t> encoded_e) {
-	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p, encoded_e));
+	std::optional<std::pair<size_t, size_t>> link) {
+	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p, link));
 	// heapify nodes
 	std::push_heap(nodes.begin(), nodes.end(), comp);
 }
