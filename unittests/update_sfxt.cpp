@@ -264,7 +264,33 @@ TEST_CASE("update sfxt test 3" * doctest::timeout(300)) {
 	REQUIRE(float_equal(paths[1].weight, -4));
 	REQUIRE(float_equal(paths[2].weight, -1));
 	REQUIRE(float_equal(paths[3].weight, 1));
+}
 
 
+TEST_CASE("update sfxt test 3" * doctest::timeout(300)) {
+	ink::Ink ink;
+	ink.insert_edge("A", "B", 0);
+	ink.insert_edge("B", "C", 1);
+	ink.insert_edge("C", "D", 0);
+
+	ink.insert_edge("A", "E", 0);
+	ink.insert_edge("F", "G", 0);
+
+	auto paths = ink.report_global(10);
+	REQUIRE(paths.size() == 3);
+	REQUIRE(float_equal(paths[0].weight, 0));
+	REQUIRE(float_equal(paths[1].weight, 0));
+	REQUIRE(float_equal(paths[2].weight, 1));
+
+	ink.insert_edge("E", "F", 5);
+	ink.insert_edge("E", "H", 10);
+	ink.insert_edge("E", "I", 15);
+	paths = ink.report_global(10);
+
+	REQUIRE(paths.size() == 4);
+	REQUIRE(float_equal(paths[0].weight, 1));
+	REQUIRE(float_equal(paths[1].weight, 5));
+	REQUIRE(float_equal(paths[2].weight, 10));
+	REQUIRE(float_equal(paths[3].weight, 15));
 
 }

@@ -192,19 +192,13 @@ Edge& Ink::insert_edge(
 			e.weights[i] = ws[i];
 		}
 		
-		// record all fanout vertices of from
-		// they all need to re-relax
+		// record from
 		if (_global_sfxt) {
-			auto& sfxt = *_global_sfxt;
-			auto uptr = _vptrs[e.from.id];
-			for (const auto e : uptr->fanout) {
-				auto v = e->to.id;
-				if (!_vptrs[v]->is_in_update_list) {
-					_to_update.emplace_back(v);
-					_vptrs[v]->is_in_update_list = true;
-				}
+			auto v = e.from.id;
+			if (!_vptrs[v]->is_in_update_list) {
+				_to_update.emplace_back(v);
+				_vptrs[v]->is_in_update_list = true;
 			}
-
 		}
 
 		return e;
@@ -236,21 +230,15 @@ Edge& Ink::insert_edge(
 		// update the edge name to iterator mapping
 		_name2eit.emplace(ename, _edges.begin());
 	
-
-		// record all fanout vertices of from
-		// they all need to re-relax
+		// record from
 		if (_global_sfxt) {
-			auto& sfxt = *_global_sfxt;
-			auto uptr = _vptrs[e.from.id];
-			for (const auto e : uptr->fanout) {
-				auto v = e->to.id;
-				if (!_vptrs[v]->is_in_update_list) {
-					_to_update.emplace_back(v);
-					_vptrs[v]->is_in_update_list = true;
-				}
+			auto v = e.from.id;
+			if (!_vptrs[v]->is_in_update_list) {
+				_to_update.emplace_back(v);
+				_vptrs[v]->is_in_update_list = true;
 			}
-			
 		}
+
 		return e; 
 	}
 
@@ -491,19 +479,13 @@ void Ink::_remove_edge(Edge& e) {
 	e.to.remove_fanin(e);
 
 
-	// record all fanout vertices of from
-	// they all need to re-relax
-	auto uptr = _vptrs[e.from.id];
+	// record from
 	if (_global_sfxt) {
-		auto& sfxt = *_global_sfxt;
-		for (const auto& e : uptr->fanout) {
-			auto v = e->to.id;
-			if (!_vptrs[v]->is_in_update_list) {
-				_to_update.emplace_back(v);
-				_vptrs[v]->is_in_update_list = true;
-			}
+		auto v = e.from.id;
+		if (!_vptrs[v]->is_in_update_list) {
+			_to_update.emplace_back(v);
+			_vptrs[v]->is_in_update_list = true;
 		}
-		sfxt.dists[e.from.id].reset();
 	}
 
 
@@ -630,38 +612,26 @@ void Ink::_sfxt_cache() {
 			}
 		}
 		
-		
 		// iterate through the topological order and re-relax
-		std::vector<bool> seen(_vptrs.size(), false);
 		for (const auto& v : tpg) {
 			auto vptr = _vptrs[v];
-			
+			sfxt.dists[v].reset();
+
 			if (vptr->is_dst()) {
 				sfxt.links[v].reset();
 				sfxt.successors[v] = sfxt.T;
-			}
-
-			if (vptr->is_src()) {
 				continue;
 			}
-			
+
+						
 			// for each of v's fanin u we redo relaxation
-			for (auto e : vptr->fanin) {
-				auto u = e->from.id;
+			for (auto e : vptr->fanout) {
+				auto t = e->to.id;
 				auto w_sel = e->min_valid_weight();
 				if (w_sel != NUM_WEIGHTS) {
-					
-					// only when a vertex first sees u
-					// we reset u's distance
-					// later on, other vertices will simply
-					// relax and update u's distance
-					if (!seen[u]) {
-						sfxt.dists[u].reset();
-						seen[u] = true;
-					}
-
+			
 					auto d = *e->weights[w_sel];
-					sfxt.relax(u, v, _encode_edge(*e, w_sel), d);
+					sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
 				}
 			}	
 			

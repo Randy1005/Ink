@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
   }
 
   std::ofstream ofs("vga_lcd.graph");
-  timer.dump_graph_ops(ofs, 50000, 100000); 
+  timer.dump_graph_ops(ofs, 50, 100000); 
 	
 
 

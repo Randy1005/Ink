@@ -20,6 +20,10 @@ _deps
 [Bb]uild-debug/*
 [Bb]uild-debug*
 
+# regression
+[Rr]egressions/*
+[Rr]egressions/**
+[Rr]egressions/
 
 # swp files
 *.swp

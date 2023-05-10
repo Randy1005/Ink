@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
 
 	
 	std::ofstream ofs("c7552.graph");
-  timer.dump_graph_ops(ofs, 50, 5000);
+  timer.dump_graph_ops(ofs, 10, 10000);
 
 
   return 0;
