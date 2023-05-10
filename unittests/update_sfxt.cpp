@@ -267,7 +267,7 @@ TEST_CASE("update sfxt test 3" * doctest::timeout(300)) {
 }
 
 
-TEST_CASE("update sfxt test 3" * doctest::timeout(300)) {
+TEST_CASE("update sfxt test 4" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("A", "B", 0);
 	ink.insert_edge("B", "C", 1);
