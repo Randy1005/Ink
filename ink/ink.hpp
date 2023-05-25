@@ -57,14 +57,26 @@ struct Vert {
 	bool is_in_update_list{false};
 };
 
+/**
+@brief Edge States
+	1. belongs to prefix tree -> belongs to prefix tree
+	2. belongs to prefix tree -> belongs to suffix tree
+	3. removed from graph
+*/
+enum class EState {
+	PFXT,
+	SFXT,
+	REMOVED
+};
+
 
 struct Edge {
 	Edge() = default;
-	Edge(Vert& v_from, Vert& v_to, 
+	Edge(Vert& from, Vert& to, 
 			 const size_t id,
 			 std::array<std::optional<float>, 8>&& ws) :
-		from{v_from},
-		to{v_to},
+		from{from},
+		to{to},
 		id{id},
 		weights{std::move(ws)}
 	{
@@ -76,17 +88,7 @@ struct Edge {
 	@brief returns the index of the minimum weight
 	(excluding std::nullopts)
 	*/
-	inline auto min_valid_weight() const {
-		float v = std::numeric_limits<float>::max();
-		size_t min_idx = NUM_WEIGHTS;
-		for (size_t i = 0; i < NUM_WEIGHTS; i++) {
-			if (weights[i] && *weights[i] < v) {
-				min_idx = i;
-				v = *weights[i];
-			}
-		}
-		return min_idx;
-	}
+	inline size_t min_valid_weight() const;
 
 
 	Vert& from;
@@ -105,7 +107,13 @@ struct Edge {
 	std::optional<std::list<Edge*>::iterator> fanin_satellite;
 	
 	// static array of optional weights
-	std::array<std::optional<float>, NUM_WEIGHTS> weights;	
+	std::array<std::optional<float>, NUM_WEIGHTS> weights;
+
+	// state of this edge
+	std::optional<EState> state{std::nullopt};
+
+	bool modified{false};
+
 };
 
 
@@ -138,8 +146,7 @@ public:
 	std::vector<Path> report(size_t K);
 
 	std::vector<Path> report_global(size_t K);
-
-
+	std::vector<Path> report_global_rebuild(size_t K);
 
 	void dump(std::ostream& os) const;
 
@@ -217,6 +224,12 @@ private:
 		const Edge* edge{nullptr};
 		const PfxtNode* parent{nullptr};
 		std::optional<std::pair<size_t, size_t>> link;
+	
+		// for traversing the prefix tree
+		std::vector<PfxtNode*> children;
+		
+		// record if visited in euler tour
+		bool visited{false};
 	};
 
 
@@ -227,9 +240,7 @@ private:
 		struct PfxtNodeComp {
 			bool operator() (
 				const std::unique_ptr<PfxtNode>& a,
-				const std::unique_ptr<PfxtNode>& b) const {
-				return a->detour_cost > b->detour_cost;
-			}	
+				const std::unique_ptr<PfxtNode>& b) const;
 		};
 
 		Pfxt(const Sfxt& sfxt);
@@ -245,7 +256,7 @@ private:
 			size_t f,
 			size_t t,
 			const Edge* e,
-			const PfxtNode* p,
+			PfxtNode* p,
 			std::optional<std::pair<size_t, size_t>> l);	
 		
 		PfxtNode* pop();
@@ -310,6 +321,7 @@ private:
 	NOTE: a global suffix tree
 	*/
 	void _sfxt_cache();
+	void _sfxt_rebuild();
 
 
 	/**
@@ -323,7 +335,7 @@ private:
 	NOTE: using a global suffix tree
 	*/
 	void _spur_global(size_t K, PathHeap& heap);
-
+	void _spur_rebuild(size_t K, PathHeap& heap);
 
 	/**
 	@brief Spur from the path. Scan the current critical path
@@ -333,9 +345,10 @@ private:
 
 
 	/**
-	@brief Spur along the path given a prefix node
+	@brief Spur along the path to generate more prefix nodes, 
+	given a prefix node, until we reach the suffix tree's super target
 	*/
-	void _spur(Pfxt& pfxt, const PfxtNode& pfx) const;
+	void _spur(Pfxt& pfxt, PfxtNode& pfx) const;
 
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
@@ -344,7 +357,15 @@ private:
 
 
 	/**
-	@brief recover the complete path from a given prefix tree node
+	@brief apply euler tour to identify leader prefix tree nodes, 
+	i.e. nodes that lead a subtree which is not affected and reusable
+	*/
+	void _identify_leaders(
+		PfxtNode* root, 
+		std::vector<PfxtNode*>& euler_tour);
+
+	/**
+	@brief Recover the complete path from a given prefix tree node
 	w.r.t a suffix tree
 	*/
 	void _recover_path(
@@ -399,35 +420,18 @@ private:
 	/**
 	@brief clears the update list for next incremental action
 	*/
-	inline void _clear_update_list() {
-		while (!_to_update.empty()) {
-			auto v = _to_update.back();
-			if (_vptrs[v]) {
-				_vptrs[v]->is_in_update_list = false;
-			}
-			_to_update.pop_back();
-		}
-	}
-
+	void _clear_update_list();
 
 	/**
 	@brief depth first search to generate topological order
 	*/
-	inline void _dfs(
+	void _dfs(
 		size_t v, 
 		std::deque<size_t>& tpg, 
-		std::vector<bool>& visited) {
-		visited[v] = true;
-		auto vptr = _vptrs[v];
-		for (const auto e : vptr->fanin) {
-			auto u = e->from.id;
-			if (!visited[u]) {
-				_dfs(u, tpg, visited);
-			}
-		}
+		std::vector<bool>& visited);
 
-		tpg.push_front(v);
-	}
+
+
 
 	std::vector<Point> _endpoints;
 
@@ -464,6 +468,13 @@ private:
 
 	// global suffix tree with a super target
 	std::optional<Sfxt> _global_sfxt{std::nullopt};
+
+	// leader prefix nodes
+	std::vector<std::array<std::unique_ptr<PfxtNode>, NUM_WEIGHTS>> _leaders;
+
+
+	// maximum prefix tree nodes
+	size_t max_pfxt_nodes{0};
 };
 
 /**

@@ -48,11 +48,27 @@ void Vert::remove_fanout(Edge& e) {
 	e.fanout_satellite.reset();
 }
 
+
+
+
+
 // ------------------------
 // Edge Implementations
 // ------------------------
 std::string Edge::name() const {
 	return from.name + "->" + to.name;
+}
+
+inline size_t Edge::min_valid_weight() const {
+	float v = std::numeric_limits<float>::max();
+	size_t min_idx = NUM_WEIGHTS;
+	for (size_t i = 0; i < NUM_WEIGHTS; i++) {
+		if (weights[i] && *weights[i] < v) {
+			min_idx = i;
+			v = *weights[i];
+		}
+	}
+	return min_idx;
 }
 
 
@@ -192,13 +208,15 @@ Edge& Ink::insert_edge(
 			e.weights[i] = ws[i];
 		}
 		
-		// record from
+		// record from vertex
 		if (_global_sfxt) {
 			auto v = e.from.id;
 			if (!_vptrs[v]->is_in_update_list) {
 				_to_update.emplace_back(v);
 				_vptrs[v]->is_in_update_list = true;
 			}
+
+			e.modified = true;
 		}
 
 		return e;
@@ -230,13 +248,15 @@ Edge& Ink::insert_edge(
 		// update the edge name to iterator mapping
 		_name2eit.emplace(ename, _edges.begin());
 	
-		// record from
+		// record from vertex 
 		if (_global_sfxt) {
 			auto v = e.from.id;
 			if (!_vptrs[v]->is_in_update_list) {
 				_to_update.emplace_back(v);
 				_vptrs[v]->is_in_update_list = true;
 			}
+
+			e.modified = true;
 		}
 
 		return e; 
@@ -332,6 +352,36 @@ std::vector<Path> Ink::report_global(size_t K) {
 	return heap.extract();
 }
 
+std::vector<Path> Ink::report_global_rebuild(size_t K) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+	PathHeap heap;
+	_spur_rebuild(K, heap);	
+
+	// report complete, clear the update list
+	_clear_update_list();		
+
+	return heap.extract();
+}
+
 
 
 void Ink::dump(std::ostream& os) const {
@@ -400,6 +450,8 @@ void Ink::dump(std::ostream& os) const {
 
 void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 	std::string buf;
+
+	size_t elapsed_time{0};
 	while (true) {
 		is >> buf;
 		if (is.eof()) {
@@ -408,7 +460,13 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 		
 		if (buf == "report") {
 			is >> buf;
+			auto beg = std::chrono::steady_clock::now();
 			auto paths = report_global(std::stoul(buf));
+			auto end = std::chrono::steady_clock::now();
+			auto elapsed = 
+				std::chrono::duration_cast<std::chrono::milliseconds>(end-beg).count();
+			elapsed_time += elapsed;
+
 			os << paths.size() << '\n';
 			for (const auto& p : paths) {
 				os << p.weight << ' ';
@@ -441,7 +499,10 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 
 	}
 	std::cout << "finished reading " << num_edges() << " edges.\n";	
-	std::cout << "finished reading " << num_verts() << " vertices.\n";	
+	std::cout << "finished reading " << num_verts() << " vertices.\n";
+	std::cout << "report runtime = " << elapsed_time << " ms. (" 
+						<< elapsed_time / 1000.0f << " sec).\n";
+
 }
 
 Edge& Ink::_insert_edge(
@@ -623,8 +684,12 @@ void Ink::_sfxt_cache() {
 				continue;
 			}
 
-						
-			// for each of v's fanin u we redo relaxation
+
+			// cache the current sfxt link, so we 
+			// can check if the link got updated
+			auto old_link = sfxt.links[v];		
+
+			// for each of v's fanout we redo relaxation
 			for (auto e : vptr->fanout) {
 				auto t = e->to.id;
 				auto w_sel = e->min_valid_weight();
@@ -633,8 +698,18 @@ void Ink::_sfxt_cache() {
 					auto d = *e->weights[w_sel];
 					sfxt.relax(v, t, _encode_edge(*e, w_sel), d);
 				}
-			}	
+
 			
+			}	
+		
+			// compare the cached link to the current link
+			if (sfxt.links[v] != old_link) {
+				// this means another edge took over and became the successor
+				// or another weight is selected for the same edge
+				auto eid = (*sfxt.links[v]).first;
+				_eptrs[eid]->state = EState::SFXT;
+			}
+
 			
 		}	
 		
@@ -650,6 +725,31 @@ void Ink::_sfxt_cache() {
 			sfxt.relax(S, src, std::nullopt, *w);
 		}
 	}
+}
+
+void Ink::_sfxt_rebuild() {
+	
+	// now id 0 and 1 are reserved for super source and super target
+	size_t S = 0, T = 1;
+
+	_global_sfxt = Sfxt(S, T, _vptrs.size());
+	auto& sfxt = *_global_sfxt;
+	assert(!sfxt.dists[T]);
+	sfxt.dists[T] = 0.0f;
+	
+	_build_sfxt(sfxt);
+	
+	// relax from destinations to super target
+	for (auto& p : _endpoints) {
+		sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
+	}
+
+	// relax from super source to sources
+	for (auto& [src, w] : sfxt.srcs) {
+		w = 0.0f;
+		sfxt.relax(S, src, std::nullopt, *w);
+	}
+
 }
 
 Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
@@ -684,14 +784,97 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 			continue;
 		}
 
-		auto s = *sfxt.dists[src] + *w;
-		pfxt.push(s, sfxt.S, src, nullptr, nullptr, std::nullopt);
+		auto cost = *sfxt.dists[src] + *w;
+		pfxt.push(cost, sfxt.S, src, nullptr, nullptr, std::nullopt);
 	}
 	return pfxt;
 }
 
+
+void Ink::_identify_leaders(
+	PfxtNode* root, 
+	std::vector<PfxtNode*>& euler_tour) {
+	// TODO:
+	// remember to reset this somewhere
+	root->visited = true;	
+	
+	// we push a node into the euler tour
+	// under 3 scenarios:
+	// 1. edge is removed (edge pointer == null)
+	// 2. edge state is SFXT 
+	//		(since this node is in prefix tree, we know
+	//		it turned from pfx node into a sfx node)
+	// 3. edge is marked as modified by the user AND
+	//		the edge state remained nullopt, then we know
+	//		this node remained a prefix tree node
+
+	if (root->edge == nullptr ||
+			root->edge->state == EState::SFXT ||
+			(root->edge->modified && !root->edge->state)) {
+		euler_tour.emplace_back(root);		
+	}
+
+	// traverse each children
+	for (auto c : root->children) {
+		if (!c->visited) {
+			_identify_leaders(c, euler_tour);
+
+			if (c->edge == nullptr ||
+					c->edge->state == EState::SFXT ||
+					(c->edge->modified && !c->edge->state)) {
+				euler_tour.emplace_back(c);		
+			}
+		}
+	}
+
+	if (!euler_tour.empty()) {
+		auto last = euler_tour.back();
+		if (last == root) {
+			// TODO: finish this, unittest if
+			// I marked the nodes right
+		}
+	
+	}
+
+}
+
+
+
 void Ink::_spur_global(size_t K, PathHeap& heap) {
 	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
+	while (!pfxt.num_nodes() == 0) {
+		//max_pfxt_nodes = std::max(max_pfxt_nodes, pfxt.num_nodes());
+
+		auto node = pfxt.pop();
+		// no more paths to generate
+		if (node == nullptr) {
+			break;
+		}		
+
+		if (heap.size() >= K) {
+			break;
+		}
+
+		// recover the complete path
+		auto path = std::make_unique<Path>(0.0f, nullptr);
+		_recover_path(*path, sfxt, node, sfxt.T);
+
+		path->weight = path->back().dist;
+		if (path->size() > 1) {
+			heap.push(std::move(path));
+			heap.fit(K);
+		}
+
+		// expand search space
+		_spur(pfxt, *node);
+	}
+
+} 
+
+void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
+	_sfxt_rebuild();
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 
@@ -754,7 +937,7 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 
 } 
 
-void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
+void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) const {
 	auto u = pfx.to;
 
 	while (u != pfxt.sfxt.T) {
@@ -786,8 +969,8 @@ void Ink::_spur(Pfxt& pfxt, const PfxtNode& pfx) const {
 				auto w = *edge->weights[w_sel];
 				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
 				
-				auto s = detour_cost + pfx.detour_cost;
-				pfxt.push(s, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+				auto dc = detour_cost + pfx.detour_cost;
+				pfxt.push(dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
 			}
 		}
 
@@ -842,6 +1025,33 @@ void Ink::_recover_path(
 	}
 
 }	
+
+void Ink::_clear_update_list() {
+	while (!_to_update.empty()) {
+		auto v = _to_update.back();
+		if (_vptrs[v]) {
+			_vptrs[v]->is_in_update_list = false;
+		}
+		_to_update.pop_back();
+	}
+}
+
+void Ink::_dfs(
+	size_t v, 
+	std::deque<size_t>& tpg, 
+	std::vector<bool>& visited) {
+	visited[v] = true;
+	auto vptr = _vptrs[v];
+	for (const auto e : vptr->fanin) {
+		auto u = e->from.id;
+		if (!visited[u]) {
+			_dfs(u, tpg, visited);
+		}
+	}
+
+	tpg.push_front(v);
+}
+
 
 
 // ------------------------
@@ -919,9 +1129,13 @@ void Ink::Pfxt::push(
 	size_t f,
 	size_t t,
 	const Edge* e,
-	const PfxtNode* p,
+	PfxtNode* p,
 	std::optional<std::pair<size_t, size_t>> link) {
 	nodes.emplace_back(std::make_unique<PfxtNode>(w, f, t, e, p, link));
+	// store a raw pointer to this node as parent's children
+	if (p != nullptr) {
+		p->children.emplace_back(nodes.back().get());
+	}
 	// heapify nodes
 	std::push_heap(nodes.begin(), nodes.end(), comp);
 }
@@ -948,6 +1162,15 @@ Ink::PfxtNode* Ink::Pfxt::top() const {
 	return nodes.empty() ? nullptr : nodes.front().get();
 }
 
+
+// ------------------------
+// PfxtNodeComp Implementations
+// ------------------------
+bool Ink::Pfxt::PfxtNodeComp::operator() (
+	const std::unique_ptr<PfxtNode>& a,
+	const std::unique_ptr<PfxtNode>& b) const {
+	return a->detour_cost > b->detour_cost;
+}	
 
 // ------------------------
 // Point Implementations
