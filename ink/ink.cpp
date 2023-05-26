@@ -382,6 +382,35 @@ std::vector<Path> Ink::report_global_rebuild(size_t K) {
 	return heap.extract();
 }
 
+std::vector<Path> Ink::report_incremental(size_t K) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+	PathHeap heap;
+	_spur_incremental(K, heap);	
+
+	// report complete, clear the update list
+	_clear_update_list();		
+
+	return heap.extract();
+}
 
 
 void Ink::dump(std::ostream& os) const {
@@ -447,6 +476,57 @@ void Ink::dump(std::ostream& os) const {
 		}
 	}
 }
+
+void Ink::dump_pfxt(std::ostream& os) const {
+	
+	os << "Non-Source Pfxt Nodes:\n";
+	for (const auto& n : _pfxt_nodes) {
+		if (n != nullptr) {
+			os << "---- Pfxt Node ----\n";
+			if (n->edge) {
+				os << "edge name:\t" << n->edge->name() << '\n';
+			}
+			else {
+				os << "null edge\n";
+			}
+
+			os << "children:\n";
+			for (const auto& c : n->children) {
+				if (c && c->edge) {
+					os << "\t" << c->edge->name() << '\n';
+				}
+			}
+			os << "-------------------\n";
+		}
+
+	}
+
+	
+	os << "Source Pfxt Nodes:\n";
+	for (const auto& n : _pfxt_srcs) {
+		if (n != nullptr) {
+			os << "---- Pfxt Node ----\n";
+			if (n->edge) {
+				os << "edge name:\t" << n->edge->name() << '\n';
+			}
+			else {
+				os << "null edge\n";
+			}
+
+			os << "children:\n";
+			for (const auto& c : n->children) {
+				if (c && c->edge) {
+					os << "\t" << c->edge->name() << '\n';
+				}
+			}
+			os << "-------------------\n";
+		}
+
+	}
+
+
+}
+
 
 void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 	std::string buf;
@@ -871,7 +951,57 @@ void Ink::_spur_global(size_t K, PathHeap& heap) {
 		_spur(pfxt, *node);
 	}
 
+}
+
+void Ink::_spur_incremental(size_t K, PathHeap& heap) {
+	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
+	
+	// TODO: apply euler tour on full_pfxt 
+	// to get the leader nodes
+	
+	
+
+	while (!pfxt.num_nodes() == 0) {
+		auto node = pfxt.pop();
+		// NOTE: 
+		// when we call pop, node's ownership is
+		// already transferred to pfxt.paths
+		// we can use that to apply euler tour
+		
+		// no more paths to generate
+		if (node == nullptr) {
+			break;
+		}		
+
+		if (heap.size() >= K) {
+			break;
+		}
+
+		// recover the complete path
+		auto path = std::make_unique<Path>(0.0f, nullptr);
+		_recover_path(*path, sfxt, node, sfxt.T);
+
+		path->weight = path->back().dist;
+		if (path->size() > 1) {
+			heap.push(std::move(path));
+			heap.fit(K);
+		}
+
+		// expand search space
+		_spur(pfxt, *node);
+	}
+
+	// save the full prefix tree nodes for incremental actions
+	// NOTE: ownership is transferred to ink._pfxt_nodes
+	_pfxt_nodes = std::move(pfxt.paths);
+
+	// TODO: this would only contain a single super source
+	// change this to a single unique_ptr 
+	_pfxt_srcs = std::move(pfxt.srcs);
 } 
+
 
 void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
 	_sfxt_rebuild();
@@ -1112,7 +1242,8 @@ Ink::PfxtNode::PfxtNode(
 { 
 }
 
-Ink::Pfxt::Pfxt(const Sfxt& sfxt) : sfxt{sfxt} 
+Ink::Pfxt::Pfxt(const Sfxt& sfxt) : 
+	sfxt{sfxt} 
 {
 }
 
@@ -1141,6 +1272,7 @@ void Ink::Pfxt::push(
 }
 
 
+
 Ink::PfxtNode* Ink::Pfxt::pop() {
 	if (nodes.empty()) {
 		return nullptr;
@@ -1151,11 +1283,22 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 
 	// get the min element from heap
 	// now it's located in the back
-	// NOTE: ownership is transferred to paths
-	paths.push_back(std::move(nodes.back()));
-	nodes.pop_back();
-	// and return a poiner to this node object
-	return paths.back().get();	
+	// NOTE: ownership is transferred to paths or src_detours
+	if (nodes.back()->parent == nullptr)  {
+		// store the source detour nodes separately
+		// so we can easily DFS from them
+		srcs.push_back(std::move(nodes.back()));
+		nodes.pop_back();
+		// and return a poiner to this node object
+		return srcs.back().get();	
+	}
+	else {
+		paths.push_back(std::move(nodes.back()));
+		nodes.pop_back();
+		// and return a poiner to this node object
+		return paths.back().get();	
+	}
+
 }
 
 Ink::PfxtNode* Ink::Pfxt::top() const {

@@ -147,8 +147,12 @@ public:
 
 	std::vector<Path> report_global(size_t K);
 	std::vector<Path> report_global_rebuild(size_t K);
+	std::vector<Path> report_incremental(size_t K);
+	
 
 	void dump(std::ostream& os) const;
+
+	void dump_pfxt(std::ostream& os) const;
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -268,9 +272,12 @@ private:
 		// prefix node comparator object
 		PfxtNodeComp comp;
 
-		// path
+		// path nodes (basically the nodes that have been
+		// popped from the heap)
 		std::vector<std::unique_ptr<PfxtNode>> paths;
 		
+		std::vector<std::unique_ptr<PfxtNode>> srcs;
+
 		// nodes (to use as a min heap)
 		std::vector<std::unique_ptr<PfxtNode>> nodes;
 	};
@@ -336,6 +343,7 @@ private:
 	*/
 	void _spur_global(size_t K, PathHeap& heap);
 	void _spur_rebuild(size_t K, PathHeap& heap);
+	void _spur_incremental(size_t K, PathHeap& heap);
 
 	/**
 	@brief Spur from the path. Scan the current critical path
@@ -349,7 +357,7 @@ private:
 	given a prefix node, until we reach the suffix tree's super target
 	*/
 	void _spur(Pfxt& pfxt, PfxtNode& pfx) const;
-
+	
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
 	*/
@@ -431,8 +439,6 @@ private:
 		std::vector<bool>& visited);
 
 
-
-
 	std::vector<Point> _endpoints;
 
 	// unordered map: name to vertex object
@@ -468,6 +474,13 @@ private:
 
 	// global suffix tree with a super target
 	std::optional<Sfxt> _global_sfxt{std::nullopt};
+
+
+	// prefix nodes from the last report
+	// (NOT heapified)
+	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
+	std::vector<std::unique_ptr<PfxtNode>> _pfxt_srcs;
+	
 
 	// leader prefix nodes
 	std::vector<std::array<std::unique_ptr<PfxtNode>, NUM_WEIGHTS>> _leaders;
