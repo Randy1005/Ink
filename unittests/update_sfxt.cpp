@@ -6,7 +6,7 @@ bool float_equal(const float f1, const float f2) {
 	return std::fabs(f1 - f2) < eps;
 }
 
-TEST_CASE("update sfxt test" * doctest::timeout(300)) {
+TEST_CASE("update sfxt test 1" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("v8", "v2", 1);
 	

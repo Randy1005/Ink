@@ -277,6 +277,7 @@ private:
 		std::vector<std::unique_ptr<PfxtNode>> paths;
 		
 		std::vector<std::unique_ptr<PfxtNode>> srcs;
+		std::unique_ptr<PfxtNode> src;
 
 		// nodes (to use as a min heap)
 		std::vector<std::unique_ptr<PfxtNode>> nodes;
@@ -480,10 +481,14 @@ private:
 	// (NOT heapified)
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_srcs;
-	
+	std::unique_ptr<PfxtNode> _pfxt_src;
 
 	// leader prefix nodes
-	std::vector<std::array<std::unique_ptr<PfxtNode>, NUM_WEIGHTS>> _leaders;
+	// NOTE: we only store a raw pointer, an OBSERVER
+	// because multiple prefix tree nodes may refer to this
+	// observer and construct prefix tree nodes using the
+	// observer's information
+	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
 
 
 	// maximum prefix tree nodes

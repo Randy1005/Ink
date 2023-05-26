@@ -878,6 +878,7 @@ void Ink::_identify_leaders(
 	// remember to reset this somewhere
 	root->visited = true;	
 	
+	auto sfxt = *_global_sfxt;
 	// we push a node into the euler tour
 	// under 3 scenarios:
 	// 1. edge is removed (edge pointer == null)
@@ -887,7 +888,6 @@ void Ink::_identify_leaders(
 	// 3. edge is marked as modified by the user AND
 	//		the edge state remained nullopt, then we know
 	//		this node remained a prefix tree node
-
 	if (root->edge == nullptr ||
 			root->edge->state == EState::SFXT ||
 			(root->edge->modified && !root->edge->state)) {
@@ -910,8 +910,23 @@ void Ink::_identify_leaders(
 	if (!euler_tour.empty()) {
 		auto last = euler_tour.back();
 		if (last == root) {
-			// TODO: finish this, unittest if
-			// I marked the nodes right
+			if (root->edge == nullptr ||
+					root->edge->state == EState::SFXT) {
+				// this node will not exist in the new pfxt 
+				// store all its children node as leader nodes
+				for (auto c : root->children) {
+					auto v = c->edge->from.id;
+					auto [e, w_sel] = _decode_edge(*sfxt.links[v]);
+					_leaders[e->id][w_sel] = c;
+				}
+			}
+			else if (root->edge->modified && !root->edge->state) {
+				auto v = root->edge->from.id;
+				auto [e, w_sel] = _decode_edge(*sfxt.links[v]);
+				_leaders[e->id][w_sel] = root;
+			}
+		
+		
 		}
 	
 	}
@@ -961,15 +976,24 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	// TODO: apply euler tour on full_pfxt 
 	// to get the leader nodes
 	
+	// resize leader storage size to 
+	// be as same as num_edges
+	_leaders.resize(_eptrs.size());
+
+	// for each prefix tree src, we apply euler tour
+	// to get the lowest affected nodes (leader nodes)
+	std::vector<PfxtNode*> euler_tour;
+	auto beg = std::chrono::steady_clock::now();
+	for (const auto& s : _pfxt_srcs) {
+		for (const auto& c : s->children) {
+			_identify_leaders(c, euler_tour);
+		}
+	}
+	auto end = std::chrono::steady_clock::now();
 	
 
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
-		// NOTE: 
-		// when we call pop, node's ownership is
-		// already transferred to pfxt.paths
-		// we can use that to apply euler tour
-		
 		// no more paths to generate
 		if (node == nullptr) {
 			break;
@@ -994,11 +1018,11 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	}
 
 	// save the full prefix tree nodes for incremental actions
-	// NOTE: ownership is transferred to ink._pfxt_nodes
+	// NOTE: ownership is transferred to ink._pfxt_nodes and ink._pfxt_srcs
 	_pfxt_nodes = std::move(pfxt.paths);
 
 	// TODO: this would only contain a single super source
-	// change this to a single unique_ptr 
+	// change this to a single unique_ptr?
 	_pfxt_srcs = std::move(pfxt.srcs);
 } 
 
