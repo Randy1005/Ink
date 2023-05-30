@@ -71,16 +71,17 @@ TEST_CASE("Single Source Tree" * doctest::timeout(300)) {
 
 	// modify v0 -> v2 weight
 	// v0->v2 is still a prefix tree edge
-	ink.insert_edge("v0", "v2", 5);
+	auto& e1 = ink.insert_edge("v0", "v2", 5);
 	paths = ink.report_incremental(10);
+	
+	// e1 should be recorded as a leader 
+	auto leaders = ink.get_leaders(); 
+	REQUIRE(!leaders.empty());
 
 	// modify v0 -> v2 weight
 	// v0->v2 became a suffix tree edge
 	ink.insert_edge("v0", "v2", -4);
 	paths = ink.report_incremental(10);
-	
-
-
 	ink.dump_pfxt(std::cout);
 }
 

@@ -1,7 +1,6 @@
 #pragma once
 #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
-#include <queue>
 
 #define NUM_WEIGHTS 8
 
@@ -10,6 +9,8 @@ namespace ink {
 struct Vert;
 struct Edge;
 struct Sfxt;
+struct PfxtNode;
+struct Pfxt;
 class Ink;
 struct Point;
 struct Path;
@@ -115,6 +116,127 @@ struct Edge {
 };
 
 
+/**
+@brief Suffix Tree
+*/
+struct Sfxt {
+	Sfxt() = default;
+	Sfxt(size_t S, size_t T, size_t sz);
+
+	inline bool relax(
+		size_t u, 
+		size_t v, 
+		std::optional<std::pair<size_t, size_t>> l,
+		float d);
+	
+	/**
+	@brief returns the distance from super source to 
+	suffix tree root
+	*/
+	inline std::optional<float> dist() const;
+
+	// super source
+	size_t S;
+
+	// suffix tree root
+	size_t T;
+
+	// sources
+	std::unordered_map<size_t, std::optional<float>> srcs;
+
+	// topological order of vertices
+	std::vector<size_t> topo_order;
+
+	// to record if visited in topological sort
+	std::vector<std::optional<bool>> visited;
+
+	// distances 
+	std::vector<std::optional<float>> dists;
+	
+	// successors
+	std::vector<std::optional<size_t>> successors;
+
+	// links (edge id, weight selection) 
+	std::vector<std::optional<std::pair<size_t, size_t>>> links;
+};
+
+
+
+
+/**
+@brief Prefix Tree Node
+*/
+struct PfxtNode {
+	PfxtNode(
+		float c, 
+		size_t f, 
+		size_t t, 
+		const Edge* e, 
+		const PfxtNode* p,
+		std::optional<std::pair<size_t, size_t>> l);
+
+	float detour_cost;
+	size_t from;
+	size_t to;
+	const Edge* edge{nullptr};
+	const PfxtNode* parent{nullptr};
+	std::optional<std::pair<size_t, size_t>> link;
+
+	// for traversing the prefix tree
+	std::vector<PfxtNode*> children;
+	
+	// record if visited in euler tour
+	bool visited{false};
+};
+
+
+/**
+@brief Prefix Tree
+*/
+struct Pfxt {
+	struct PfxtNodeComp {
+		bool operator() (
+			const std::unique_ptr<PfxtNode>& a,
+			const std::unique_ptr<PfxtNode>& b) const;
+	};
+
+	Pfxt(const Sfxt& sfxt);
+	Pfxt(Pfxt&& other);
+	Pfxt& operator = (Pfxt&& other) = delete;
+
+	inline size_t num_nodes() const {
+		return nodes.size();
+	} 
+	
+	void push(
+		float w,
+		size_t f,
+		size_t t,
+		const Edge* e,
+		PfxtNode* p,
+		std::optional<std::pair<size_t, size_t>> l);	
+	
+	PfxtNode* pop();
+	
+	PfxtNode* top() const;	
+
+	const Sfxt& sfxt;
+	
+	// prefix node comparator object
+	PfxtNodeComp comp;
+
+	// path nodes (basically the nodes that have been
+	// popped from the heap)
+	std::vector<std::unique_ptr<PfxtNode>> paths;
+
+	// nodes (to use as a min heap)
+	std::vector<std::unique_ptr<PfxtNode>> nodes;
+
+	// source
+	PfxtNode* src;
+};
+
+
 
 class Ink {
 	
@@ -159,130 +281,11 @@ public:
 	inline size_t num_edges() const {
 		return _edges.size();
 	}
-
+	
+	std::vector<std::array<std::optional<PfxtNode*>, NUM_WEIGHTS>>
+		get_leaders() const;
 
 private:
-
-	/**
-	@brief Suffix Tree
-	*/
-	struct Sfxt {
-		Sfxt() = default;
-		Sfxt(size_t S, size_t T, size_t sz);
-
-		inline bool relax(
-			size_t u, 
-			size_t v, 
-			std::optional<std::pair<size_t, size_t>> l,
-			float d);
-		
-		/**
-		@brief returns the distance from super source to 
-		suffix tree root
-		*/
-		inline std::optional<float> dist() const;
-
-		// super source
-		size_t S;
-
-		// suffix tree root
-		size_t T;
-
-		// sources
-		std::unordered_map<size_t, std::optional<float>> srcs;
-
-		// topological order of vertices
-		std::vector<size_t> topo_order;
-
-		// to record if visited in topological sort
-		std::vector<std::optional<bool>> visited;
-
-		// distances 
-		std::vector<std::optional<float>> dists;
-		
-		// successors
-		std::vector<std::optional<size_t>> successors;
-	
-		// links (edge id, weight selection) 
-		std::vector<std::optional<std::pair<size_t, size_t>>> links;
-	};
-
-
-	/**
-	@brief Prefix Tree Node
-	*/
-	struct PfxtNode {
-		PfxtNode(
-			float c, 
-			size_t f, 
-			size_t t, 
-			const Edge* e, 
-			const PfxtNode* p,
-			std::optional<std::pair<size_t, size_t>> l);
-
-		float detour_cost;
-		size_t from;
-		size_t to;
-		const Edge* edge{nullptr};
-		const PfxtNode* parent{nullptr};
-		std::optional<std::pair<size_t, size_t>> link;
-	
-		// for traversing the prefix tree
-		std::vector<PfxtNode*> children;
-		
-		// record if visited in euler tour
-		bool visited{false};
-	};
-
-
-	/**
-	@brief Prefix Tree
-	*/
-	struct Pfxt {
-		struct PfxtNodeComp {
-			bool operator() (
-				const std::unique_ptr<PfxtNode>& a,
-				const std::unique_ptr<PfxtNode>& b) const;
-		};
-
-		Pfxt(const Sfxt& sfxt);
-		Pfxt(Pfxt&& other);
-		Pfxt& operator = (Pfxt&& other) = delete;
-
-		inline size_t num_nodes() const {
-			return nodes.size();
-		} 
-		
-		void push(
-			float w,
-			size_t f,
-			size_t t,
-			const Edge* e,
-			PfxtNode* p,
-			std::optional<std::pair<size_t, size_t>> l);	
-		
-		PfxtNode* pop();
-		
-		PfxtNode* top() const;	
-
-		const Sfxt& sfxt;
-		
-		// prefix node comparator object
-		PfxtNodeComp comp;
-
-		// path nodes (basically the nodes that have been
-		// popped from the heap)
-		std::vector<std::unique_ptr<PfxtNode>> paths;
-
-		// nodes (to use as a min heap)
-		std::vector<std::unique_ptr<PfxtNode>> nodes;
-	
-		// source
-		PfxtNode* src;
-	};
-
-
-
 	/**
 	@brief Index Generator
 	*/
@@ -314,7 +317,6 @@ private:
 
 	
 	void _read_ops_and_report(std::istream& is, std::ostream& os);
-
 	
 	void _topologize(Sfxt& sfxt, size_t root) const;
 

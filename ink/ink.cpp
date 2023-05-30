@@ -521,8 +521,12 @@ void Ink::dump_pfxt(std::ostream& os) const {
 		os << "-------------------\n";
 	}
 
+}
 
 
+std::vector<std::array<std::optional<PfxtNode*>, NUM_WEIGHTS>>
+	Ink::get_leaders() const {
+	return _leaders;
 }
 
 
@@ -831,7 +835,7 @@ void Ink::_sfxt_rebuild() {
 
 }
 
-Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
+Sfxt Ink::_sfxt_cache(const Point& p) const {
 	auto S = _vptrs.size();
 	auto to = p.vert.id;
 
@@ -853,7 +857,7 @@ Ink::Sfxt Ink::_sfxt_cache(const Point& p) const {
 }
 
 
-Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
+Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 	Pfxt pfxt(sfxt);
 	assert(sfxt.dist());
 
@@ -975,7 +979,8 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	
 	// resize leader storage size to 
 	// be as same as num_edges
-	_leaders.resize(_eptrs.size());
+	_leaders.clear();
+	_leaders.resize(num_edges());
 
 	// we apply euler tour to get the lowest affected nodes (leader nodes)
 	std::vector<PfxtNode*> euler_tour;
@@ -1054,9 +1059,6 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 			e->modified = false;
 		}
 	}
-
-	// reset leader lookup table
-	_leaders.clear();
 
 } 
 
@@ -1249,7 +1251,7 @@ void Ink::_dfs(
 // NOTE:
 // OpenTimer does a resize_to_fit, why not simply resize(N)?
 
-Ink::Sfxt::Sfxt(size_t S, size_t T, size_t sz) :
+Sfxt::Sfxt(size_t S, size_t T, size_t sz) :
 	S{S},
 	T{T}
 {
@@ -1260,7 +1262,7 @@ Ink::Sfxt::Sfxt(size_t S, size_t T, size_t sz) :
 	links.resize(sz);
 }
 
-inline bool Ink::Sfxt::relax(
+inline bool Sfxt::relax(
 	size_t u, 
 	size_t v, 
 	std::optional<std::pair<size_t, size_t>> l, 
@@ -1276,7 +1278,7 @@ inline bool Ink::Sfxt::relax(
 }
 
 
-inline std::optional<float> Ink::Sfxt::dist() const {
+inline std::optional<float> Sfxt::dist() const {
 	return dists[S];
 }
 
@@ -1284,7 +1286,7 @@ inline std::optional<float> Ink::Sfxt::dist() const {
 // ------------------------
 // Prefix Tree Implementations
 // ------------------------
-Ink::PfxtNode::PfxtNode(
+PfxtNode::PfxtNode(
 	float c, 
 	size_t f, 
 	size_t t, 
@@ -1300,12 +1302,12 @@ Ink::PfxtNode::PfxtNode(
 { 
 }
 
-Ink::Pfxt::Pfxt(const Sfxt& sfxt) : 
+Pfxt::Pfxt(const Sfxt& sfxt) : 
 	sfxt{sfxt} 
 {
 }
 
-Ink::Pfxt::Pfxt(Pfxt&& other) :
+Pfxt::Pfxt(Pfxt&& other) :
 	sfxt{other.sfxt},
 	comp{other.comp},
 	paths{std::move(other.paths)},
@@ -1313,7 +1315,7 @@ Ink::Pfxt::Pfxt(Pfxt&& other) :
 {
 }
 
-void Ink::Pfxt::push(
+void Pfxt::push(
 	float w,
 	size_t f,
 	size_t t,
@@ -1331,7 +1333,7 @@ void Ink::Pfxt::push(
 
 
 
-Ink::PfxtNode* Ink::Pfxt::pop() {
+PfxtNode* Pfxt::pop() {
 	if (nodes.empty()) {
 		return nullptr;
 	}
@@ -1357,7 +1359,7 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 	return paths.back().get();
 }
 
-Ink::PfxtNode* Ink::Pfxt::top() const {
+PfxtNode* Pfxt::top() const {
 	return nodes.empty() ? nullptr : nodes.front().get();
 }
 
@@ -1365,7 +1367,7 @@ Ink::PfxtNode* Ink::Pfxt::top() const {
 // ------------------------
 // PfxtNodeComp Implementations
 // ------------------------
-bool Ink::Pfxt::PfxtNodeComp::operator() (
+bool Pfxt::PfxtNodeComp::operator() (
 	const std::unique_ptr<PfxtNode>& a,
 	const std::unique_ptr<PfxtNode>& b) const {
 	return a->detour_cost > b->detour_cost;
