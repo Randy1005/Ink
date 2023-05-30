@@ -109,9 +109,7 @@ struct Edge {
 	// static array of optional weights
 	std::array<std::optional<float>, NUM_WEIGHTS> weights;
 
-	// state of this edge
 	std::optional<EState> state{std::nullopt};
-
 	bool modified{false};
 
 };
@@ -275,12 +273,12 @@ private:
 		// path nodes (basically the nodes that have been
 		// popped from the heap)
 		std::vector<std::unique_ptr<PfxtNode>> paths;
-		
-		std::vector<std::unique_ptr<PfxtNode>> srcs;
-		std::unique_ptr<PfxtNode> src;
 
 		// nodes (to use as a min heap)
 		std::vector<std::unique_ptr<PfxtNode>> nodes;
+	
+		// source
+		PfxtNode* src;
 	};
 
 
@@ -480,19 +478,21 @@ private:
 	// prefix nodes from the last report
 	// (NOT heapified)
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
-	std::vector<std::unique_ptr<PfxtNode>> _pfxt_srcs;
-	std::unique_ptr<PfxtNode> _pfxt_src;
+	PfxtNode* _pfxt_src{nullptr};
 
 	// leader prefix nodes
 	// NOTE: we only store a raw pointer, an OBSERVER
 	// because multiple prefix tree nodes may refer to this
 	// observer and construct prefix tree nodes using the
 	// observer's information
-	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
+	std::vector<std::array<std::optional<PfxtNode*>, NUM_WEIGHTS>> _leaders;
 
 
 	// maximum prefix tree nodes
-	size_t max_pfxt_nodes{0};
+	size_t _max_pfxt_nodes{0};
+
+	// leader count
+	size_t _leader_cnt{0};
 };
 
 /**

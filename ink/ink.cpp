@@ -479,7 +479,7 @@ void Ink::dump(std::ostream& os) const {
 
 void Ink::dump_pfxt(std::ostream& os) const {
 	
-	os << "Non-Source Pfxt Nodes:\n";
+	os << "Pfxt Nodes:\n";
 	for (const auto& n : _pfxt_nodes) {
 		if (n != nullptr) {
 			os << "---- Pfxt Node ----\n";
@@ -501,28 +501,26 @@ void Ink::dump_pfxt(std::ostream& os) const {
 
 	}
 
-	
-	os << "Source Pfxt Nodes:\n";
-	for (const auto& n : _pfxt_srcs) {
-		if (n != nullptr) {
-			os << "---- Pfxt Node ----\n";
-			if (n->edge) {
-				os << "edge name:\t" << n->edge->name() << '\n';
-			}
-			else {
-				os << "null edge\n";
-			}
-
-			os << "children:\n";
-			for (const auto& c : n->children) {
-				if (c && c->edge) {
-					os << "\t" << c->edge->name() << '\n';
-				}
-			}
-			os << "-------------------\n";
+	os << '\n';	
+	os << "Source Pfxt Node:\n";
+	if (_pfxt_src != nullptr) {
+		os << "---- Pfxt Node ----\n";
+		if (_pfxt_src->edge) {
+			os << "edge name:\t" << _pfxt_src->edge->name() << '\n';
+		}
+		else {
+			os << "null edge\n";
 		}
 
+		os << "children:\n";
+		for (auto c : _pfxt_src->children) {
+			if (c && c->edge) {
+				os << "\t" << c->edge->name() << '\n';
+			}
+		}
+		os << "-------------------\n";
 	}
+
 
 
 }
@@ -531,6 +529,7 @@ void Ink::dump_pfxt(std::ostream& os) const {
 void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 	std::string buf;
 
+	size_t iters{0};
 	size_t elapsed_time{0};
 	while (true) {
 		is >> buf;
@@ -541,11 +540,12 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 		if (buf == "report") {
 			is >> buf;
 			auto beg = std::chrono::steady_clock::now();
-			auto paths = report_global(std::stoul(buf));
+			auto paths = report_incremental(std::stoul(buf));
 			auto end = std::chrono::steady_clock::now();
 			auto elapsed = 
 				std::chrono::duration_cast<std::chrono::milliseconds>(end-beg).count();
 			elapsed_time += elapsed;
+			
 
 			os << paths.size() << '\n';
 			for (const auto& p : paths) {
@@ -582,7 +582,6 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os) {
 	std::cout << "finished reading " << num_verts() << " vertices.\n";
 	std::cout << "report runtime = " << elapsed_time << " ms. (" 
 						<< elapsed_time / 1000.0f << " sec).\n";
-
 }
 
 Edge& Ink::_insert_edge(
@@ -874,11 +873,9 @@ Ink::Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 void Ink::_identify_leaders(
 	PfxtNode* root, 
 	std::vector<PfxtNode*>& euler_tour) {
-	// TODO:
-	// remember to reset this somewhere
 	root->visited = true;	
 	
-	auto sfxt = *_global_sfxt;
+	auto& sfxt = *_global_sfxt;
 	// we push a node into the euler tour
 	// under 3 scenarios:
 	// 1. edge is removed (edge pointer == null)
@@ -886,47 +883,52 @@ void Ink::_identify_leaders(
 	//		(since this node is in prefix tree, we know
 	//		it turned from pfx node into a sfx node)
 	// 3. edge is marked as modified by the user AND
-	//		the edge state remained nullopt, then we know
-	//		this node remained a prefix tree node
-	if (root->edge == nullptr ||
-			root->edge->state == EState::SFXT ||
-			(root->edge->modified && !root->edge->state)) {
-		euler_tour.emplace_back(root);		
+	//		the edge state remains nullopt, then we know
+	//		this node remains a prefix tree node
+	auto [eptr, w_sel] = _decode_edge(*root->link);
+
+	// NOTE:
+	// CAUTION! do not use node.edge here
+	// because it is not updated when remove_edge is called
+	// we need to check the eptrs mapping
+	if (eptr == nullptr ||
+			eptr->state == EState::SFXT ||
+			(eptr->modified && !eptr->state)) {
+		euler_tour.emplace_back(root);
 	}
+
 
 	// traverse each children
 	for (auto c : root->children) {
+		assert(c != nullptr);
 		if (!c->visited) {
 			_identify_leaders(c, euler_tour);
 
-			if (c->edge == nullptr ||
-					c->edge->state == EState::SFXT ||
-					(c->edge->modified && !c->edge->state)) {
-				euler_tour.emplace_back(c);		
+			auto [e, wsel] = _decode_edge(*c->link);
+			if (e == nullptr ||
+					e->state == EState::SFXT ||
+					(e->modified && !e->state)) {
+					euler_tour.emplace_back(c);
 			}
+
 		}
 	}
 
 	if (!euler_tour.empty()) {
 		auto last = euler_tour.back();
 		if (last == root) {
-			if (root->edge == nullptr ||
-					root->edge->state == EState::SFXT) {
+			if (eptr == nullptr ||
+					eptr->state == EState::SFXT) {
 				// this node will not exist in the new pfxt 
 				// store all its children node as leader nodes
 				for (auto c : root->children) {
-					auto v = c->edge->from.id;
-					auto [e, w_sel] = _decode_edge(*sfxt.links[v]);
-					_leaders[e->id][w_sel] = c;
+					auto [e, wsel] = _decode_edge(*c->link);
+					_leaders[e->id][wsel] = c;
 				}
 			}
-			else if (root->edge->modified && !root->edge->state) {
-				auto v = root->edge->from.id;
-				auto [e, w_sel] = _decode_edge(*sfxt.links[v]);
-				_leaders[e->id][w_sel] = root;
+			else if (eptr->modified && !eptr->state) {
+				_leaders[eptr->id][w_sel] = root;
 			}
-		
-		
 		}
 	
 	}
@@ -940,8 +942,6 @@ void Ink::_spur_global(size_t K, PathHeap& heap) {
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 	while (!pfxt.num_nodes() == 0) {
-		//max_pfxt_nodes = std::max(max_pfxt_nodes, pfxt.num_nodes());
-
 		auto node = pfxt.pop();
 		// no more paths to generate
 		if (node == nullptr) {
@@ -973,24 +973,19 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 	
-	// TODO: apply euler tour on full_pfxt 
-	// to get the leader nodes
-	
 	// resize leader storage size to 
 	// be as same as num_edges
 	_leaders.resize(_eptrs.size());
 
-	// for each prefix tree src, we apply euler tour
-	// to get the lowest affected nodes (leader nodes)
+	// we apply euler tour to get the lowest affected nodes (leader nodes)
 	std::vector<PfxtNode*> euler_tour;
-	auto beg = std::chrono::steady_clock::now();
-	for (const auto& s : _pfxt_srcs) {
-		for (const auto& c : s->children) {
+	if (_pfxt_src != nullptr && !_pfxt_nodes.empty()) {
+		assert(_pfxt_src->parent == nullptr);
+		for (auto c : _pfxt_src->children) {
 			_identify_leaders(c, euler_tour);
 		}
 	}
-	auto end = std::chrono::steady_clock::now();
-	
+
 
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
@@ -1002,6 +997,24 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 		if (heap.size() >= K) {
 			break;
 		}
+
+		// get the edge pointer and weight selection index
+		// of this node
+		if (node->link) {
+		
+		}
+		//auto [eptr, w_sel] = _decode_edge(*node->link);
+		//assert(eptr != nullptr);
+		//assert(eptr->id < _leaders.size());
+		//assert(w_sel < NUM_WEIGHTS);
+		//if (_leaders[eptr->id][w_sel]) {
+		//	// we recorded a leader from previous report
+		//	// we can traverse this leader's subtree and
+		//	// recover its children prefix tree nodes
+		//	_leader_cnt++;
+		//	std::cout << "leader!\n";
+		//	// continue;
+		//}
 
 		// recover the complete path
 		auto path = std::make_unique<Path>(0.0f, nullptr);
@@ -1017,13 +1030,34 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 		_spur(pfxt, *node);
 	}
 
+
+
 	// save the full prefix tree nodes for incremental actions
-	// NOTE: ownership is transferred to ink._pfxt_nodes and ink._pfxt_srcs
+	// NOTE: ownership is transferred to ink._pfxt_nodes
+	_pfxt_src = pfxt.src;
 	_pfxt_nodes = std::move(pfxt.paths);
 
-	// TODO: this would only contain a single super source
-	// change this to a single unique_ptr?
-	_pfxt_srcs = std::move(pfxt.srcs);
+	// if there's any prefix tree nodes left
+	// transfer them to _pfxt_nodes 
+	while (!pfxt.num_nodes() == 0) {
+		_pfxt_nodes.push_back(std::move(pfxt.nodes.back()));
+		pfxt.nodes.pop_back();
+	}
+
+
+	assert(_pfxt_src != nullptr);
+
+	// reset edge states
+	for (auto e : _eptrs) {
+		if (e != nullptr) {
+			e->state = std::nullopt;
+			e->modified = false;
+		}
+	}
+
+	// reset leader lookup table
+	_leaders.clear();
+
 } 
 
 
@@ -1305,24 +1339,22 @@ Ink::PfxtNode* Ink::Pfxt::pop() {
 	// swap [0] and [N-1], and heapify [first, N-1)
 	std::pop_heap(nodes.begin(), nodes.end(), comp);
 
+	if (nodes.back()->parent == nullptr)  {
+		// store a pointer to the source detour node
+		// so we can easily DFS from it
+		src = nodes.back().get();	
+	}
+	
 	// get the min element from heap
 	// now it's located in the back
-	// NOTE: ownership is transferred to paths or src_detours
-	if (nodes.back()->parent == nullptr)  {
-		// store the source detour nodes separately
-		// so we can easily DFS from them
-		srcs.push_back(std::move(nodes.back()));
-		nodes.pop_back();
-		// and return a poiner to this node object
-		return srcs.back().get();	
-	}
-	else {
-		paths.push_back(std::move(nodes.back()));
-		nodes.pop_back();
-		// and return a poiner to this node object
-		return paths.back().get();	
-	}
-
+	paths.push_back(std::move(nodes.back()));
+	nodes.pop_back();
+	
+	
+	// reset visited bool for the next euler tour
+	paths.back()->visited = false;
+	// and return a poiner to this node object
+	return paths.back().get();
 }
 
 Ink::PfxtNode* Ink::Pfxt::top() const {

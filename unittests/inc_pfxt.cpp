@@ -70,13 +70,18 @@ TEST_CASE("Single Source Tree" * doctest::timeout(300)) {
 	REQUIRE(paths.size() == 7);
 
 	// modify v0 -> v2 weight
+	// v0->v2 is still a prefix tree edge
 	ink.insert_edge("v0", "v2", 5);
-	paths = ink.report_incremental(10);	
+	paths = ink.report_incremental(10);
 
+	// modify v0 -> v2 weight
+	// v0->v2 became a suffix tree edge
+	ink.insert_edge("v0", "v2", -4);
+	paths = ink.report_incremental(10);
+	
 
 
 	ink.dump_pfxt(std::cout);
-
 }
 
 TEST_CASE("1 Chain (using incremental spur)" * doctest::timeout(300)) {
@@ -933,7 +938,8 @@ TEST_CASE("update sfxt test 2 (using incremental spur)" * doctest::timeout(300))
 	REQUIRE(float_equal(paths[9].weight, 0));
 	REQUIRE(float_equal(paths[10].weight, 0));
 	REQUIRE(float_equal(paths[11].weight, 0));
-	
+
+
 	ink.insert_edge("D", "E", 
 		std::nullopt, std::nullopt, std::nullopt, std::nullopt, 
 		std::nullopt, 1, 2, std::nullopt);
