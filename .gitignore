@@ -32,8 +32,15 @@ _deps
 *tags
 
 # graph operation dumps
-*.graph
-
+*.graph*
 
 # valgrind debug outputs
 vgcore*
+
+# benchmarks
+[Bb]enchmarks/
+[Bb]enchmarks/*
+
+# examples
+[Ee]xamples/
+[Ee]xamples/*
