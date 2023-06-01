@@ -41,6 +41,5 @@ vgcore*
 [Bb]enchmarks/
 [Bb]enchmarks/*
 
-# examples
-[Ee]xamples/
-[Ee]xamples/*
+# *_timing executables
+*_timing
