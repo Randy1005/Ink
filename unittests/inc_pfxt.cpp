@@ -54,17 +54,17 @@ void build_bt3(ink::Ink& ink) {
 
 
 
-TEST_CASE("Update / Remove Edges" * doctest::timeout(300)) {
+TEST_CASE("Update Edges 1" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("v0", "v1", -1);
 	ink.insert_edge("v0", "v2", 3);
 	ink.insert_edge("v2", "v5", 1);
-	auto& e6 = ink.insert_edge("v2", "v6", 2);
+	ink.insert_edge("v2", "v6", 2);
 	ink.insert_edge("v5", "v1", 1);
 	ink.insert_edge("v1", "v3", 1);
-	auto& e3 = ink.insert_edge("v1", "v4", 2);
+	ink.insert_edge("v1", "v4", 2);
 	ink.insert_edge("v3", "v7", -4);
-	auto& e8 = ink.insert_edge("v3", "v8", 8);
+	ink.insert_edge("v3", "v8", 8);
 	
 	auto paths = ink.report_incremental(10);
 	REQUIRE(paths.size() == 7);
@@ -95,6 +95,72 @@ TEST_CASE("Update / Remove Edges" * doctest::timeout(300)) {
 	REQUIRE(float_equal(paths[4].weight, 1));
 	REQUIRE(float_equal(paths[5].weight, 7));
 	REQUIRE(float_equal(paths[6].weight, 8));
+}
+
+
+TEST_CASE("Update Edges 2" * doctest::timeout(300)) {
+	ink::Ink ink;
+	ink.insert_edge("A", "B", -1);
+	ink.insert_edge("A", "C", 3);
+	ink.insert_edge("C", "D", 1);
+	ink.insert_edge("C", "E", 2);
+	ink.insert_edge("D", "B", 3);
+
+	ink.insert_edge("B", "F", 1);
+	ink.insert_edge("B", "G", 2);
+	ink.insert_edge("F", "H", -4);
+	ink.insert_edge("F", "I", 8);
+	ink.insert_edge("I", "L", 4);
+	ink.insert_edge("I", "M", 11);
+
+	ink.insert_edge("G", "J", 5);
+	ink.insert_edge("G", "K", 7);
+
+	auto paths = ink.report_incremental(20);
+	REQUIRE(paths.size() == 11);
+
+	// modify A->C's weight to 0, A->C remains a prefix tree edge
+	ink.insert_edge("A", "C", 0);
+	paths = ink.report_incremental(20);
+	REQUIRE(paths.size() == 11);
+	REQUIRE(float_equal(paths[0].weight, -4));
+	REQUIRE(float_equal(paths[1].weight, 1));
+	REQUIRE(float_equal(paths[2].weight, 2));
+	REQUIRE(float_equal(paths[3].weight, 6));
+	REQUIRE(float_equal(paths[4].weight, 8));
+	REQUIRE(float_equal(paths[5].weight, 11));
+	REQUIRE(float_equal(paths[6].weight, 12));
+	REQUIRE(float_equal(paths[7].weight, 13));
+	REQUIRE(float_equal(paths[8].weight, 17));
+	REQUIRE(float_equal(paths[9].weight, 19));
+	REQUIRE(float_equal(paths[10].weight, 24));
+
+	// modify A->B's weight to 5, A->C becomes a suffix tree edge
+	ink.insert_edge("A", "B", 5);
+	paths = ink.report_incremental(20);
+	REQUIRE(paths.size() == 11);
+	REQUIRE(float_equal(paths[0].weight, 1));
+	REQUIRE(float_equal(paths[1].weight, 2));
+	REQUIRE(float_equal(paths[2].weight, 2));
+	REQUIRE(float_equal(paths[3].weight, 11));
+	REQUIRE(float_equal(paths[4].weight, 12));
+	REQUIRE(float_equal(paths[5].weight, 13));
+	REQUIRE(float_equal(paths[6].weight, 14));
+	REQUIRE(float_equal(paths[7].weight, 17));
+	REQUIRE(float_equal(paths[8].weight, 18));
+	REQUIRE(float_equal(paths[9].weight, 24));
+	REQUIRE(float_equal(paths[10].weight, 25));
+
+	// if we report less paths
+	// the paths should not be affected
+	paths = ink.report_incremental(7);
+	REQUIRE(float_equal(paths[0].weight, 1));
+	REQUIRE(float_equal(paths[1].weight, 2));
+	REQUIRE(float_equal(paths[2].weight, 2));
+	REQUIRE(float_equal(paths[3].weight, 11));
+	REQUIRE(float_equal(paths[4].weight, 12));
+	REQUIRE(float_equal(paths[5].weight, 13));
+	REQUIRE(float_equal(paths[6].weight, 14));
 
 }
 

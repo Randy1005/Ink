@@ -1116,7 +1116,6 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
 		loop_cnt++;
-		bool leader_matched{false};
 		auto node = pfxt.pop();
 			
 		// no more paths to generate
@@ -1143,7 +1142,6 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 					_traverse_leader(c, node, pfxt);
 				}
 
-				leader_matched = true;
 			}
 		}
 		
@@ -1157,11 +1155,17 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 			heap.fit(K);
 		}
 
-		if (leader_matched) {
+		// NOTE:
+		// if this node already has children before spur
+		// that means this node is recovered from a leader
+		// we should not call spur on this node again
+		// as this would cause duplicated children to appear
+		if (node->children.size() != 0) {
 			continue;
 		}
 
-		// expand search space
+		// expand search spac
+		// find children (more detours) for node
 		_spur(pfxt, *node);
 	}
 	

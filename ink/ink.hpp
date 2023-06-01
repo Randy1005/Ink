@@ -174,7 +174,7 @@ struct PfxtNode {
 		const Edge* e, 
 		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l);
-
+	
 	float cost;
 	size_t from;
 	size_t to;
@@ -191,6 +191,8 @@ struct PfxtNode {
 	// record if visited in leader subtree
 	// dfs traversal
 	bool visited_dfs{false};
+
+	bool visited_subtreecnt{false};
 };
 
 
