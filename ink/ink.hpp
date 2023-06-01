@@ -172,21 +172,25 @@ struct PfxtNode {
 		size_t f, 
 		size_t t, 
 		const Edge* e, 
-		const PfxtNode* p,
+		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l);
 
-	float detour_cost;
+	float cost;
 	size_t from;
 	size_t to;
 	const Edge* edge{nullptr};
-	const PfxtNode* parent{nullptr};
+	PfxtNode* parent{nullptr};
 	std::optional<std::pair<size_t, size_t>> link;
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
 	
 	// record if visited in euler tour
-	bool visited{false};
+	bool visited_euler{false};
+
+	// record if visited in leader subtree
+	// dfs traversal
+	bool visited_dfs{false};
 };
 
 
@@ -208,8 +212,8 @@ struct Pfxt {
 		return nodes.size();
 	} 
 	
-	void push(
-		float w,
+	PfxtNode* push(
+		float c,
 		size_t f,
 		size_t t,
 		const Edge* e,
@@ -218,6 +222,11 @@ struct Pfxt {
 	
 	PfxtNode* pop();
 	
+	// overloaded version of pop
+	// instead of transferring ownership to paths
+	// we just transfer to global storage 
+	PfxtNode* pop(std::vector<std::unique_ptr<PfxtNode>>& glob_nodes);
+
 	PfxtNode* top() const;	
 
 	const Sfxt& sfxt;
@@ -243,7 +252,10 @@ class Ink {
 public:
 	Ink() = default;	
 
-	void read_ops_and_report(const std::string& in, const std::string& out);
+	void read_ops_and_report(
+		const std::string& in, 
+		const std::string& out, 
+		size_t mode);
 
 	Vert& insert_vertex(const std::string& name);
 	
@@ -282,7 +294,7 @@ public:
 		return _edges.size();
 	}
 	
-	std::vector<std::array<std::optional<PfxtNode*>, NUM_WEIGHTS>>
+	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>>
 		get_leaders() const;
 
 private:
@@ -316,7 +328,7 @@ private:
 	};
 
 	
-	void _read_ops_and_report(std::istream& is, std::ostream& os);
+	void _read_ops_and_report(std::istream& is, std::ostream& os, size_t mode);
 	
 	void _topologize(Sfxt& sfxt, size_t root) const;
 
@@ -364,7 +376,6 @@ private:
 	*/
 	Pfxt _pfxt_cache(const Sfxt& sfxt) const;
 
-
 	/**
 	@brief apply euler tour to identify leader prefix tree nodes, 
 	i.e. nodes that lead a subtree which is not affected and reusable
@@ -372,6 +383,11 @@ private:
 	void _identify_leaders(
 		PfxtNode* root, 
 		std::vector<PfxtNode*>& euler_tour);
+
+	void _traverse_leader(
+		PfxtNode* node, 
+		PfxtNode* parent, 
+		Pfxt& pfxt) const;
 
 	/**
 	@brief Recover the complete path from a given prefix tree node
@@ -487,7 +503,7 @@ private:
 	// because multiple prefix tree nodes may refer to this
 	// observer and construct prefix tree nodes using the
 	// observer's information
-	std::vector<std::array<std::optional<PfxtNode*>, NUM_WEIGHTS>> _leaders;
+	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
 
 
 	// maximum prefix tree nodes
@@ -495,6 +511,23 @@ private:
 
 	// leader count
 	size_t _leader_cnt{0};
+	
+	// elapsed time: whole spur function
+	size_t _elapsed_time{0};
+
+	// elapsed time: identify leaders
+	size_t _elapsed_time_idl{0};
+	
+	// elapsed time: spur loop
+	size_t _elapsed_time_sploop{0};
+
+	// elapsed time: transfer leftover nodes
+	size_t _elapsed_time_tr{0};
+	
+	size_t loop_cnt{0};
+	
+	size_t pfxt_node_cnt{0};
+
 };
 
 /**

@@ -54,17 +54,17 @@ void build_bt3(ink::Ink& ink) {
 
 
 
-TEST_CASE("Single Source Tree" * doctest::timeout(300)) {
+TEST_CASE("Update / Remove Edges" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("v0", "v1", -1);
 	ink.insert_edge("v0", "v2", 3);
 	ink.insert_edge("v2", "v5", 1);
-	ink.insert_edge("v2", "v6", 2);
+	auto& e6 = ink.insert_edge("v2", "v6", 2);
 	ink.insert_edge("v5", "v1", 1);
 	ink.insert_edge("v1", "v3", 1);
-	ink.insert_edge("v1", "v4", 2);
+	auto& e3 = ink.insert_edge("v1", "v4", 2);
 	ink.insert_edge("v3", "v7", -4);
-	ink.insert_edge("v3", "v8", 8);
+	auto& e8 = ink.insert_edge("v3", "v8", 8);
 	
 	auto paths = ink.report_incremental(10);
 	REQUIRE(paths.size() == 7);
@@ -74,15 +74,28 @@ TEST_CASE("Single Source Tree" * doctest::timeout(300)) {
 	auto& e1 = ink.insert_edge("v0", "v2", 5);
 	paths = ink.report_incremental(10);
 	
-	// e1 should be recorded as a leader 
-	auto leaders = ink.get_leaders(); 
-	REQUIRE(!leaders.empty());
+	REQUIRE(paths.size() == 7);
+	REQUIRE(float_equal(paths[0].weight, -4));
+	REQUIRE(float_equal(paths[1].weight, 1));
+	REQUIRE(float_equal(paths[2].weight, 4));
+	REQUIRE(float_equal(paths[3].weight, 7));
+	REQUIRE(float_equal(paths[4].weight, 8));
+	REQUIRE(float_equal(paths[5].weight, 9));
+	REQUIRE(float_equal(paths[6].weight, 16));
 
 	// modify v0 -> v2 weight
 	// v0->v2 became a suffix tree edge
 	ink.insert_edge("v0", "v2", -4);
 	paths = ink.report_incremental(10);
-	ink.dump_pfxt(std::cout);
+	REQUIRE(paths.size() == 7);
+	REQUIRE(float_equal(paths[0].weight, -5));
+	REQUIRE(float_equal(paths[1].weight, -4));
+	REQUIRE(float_equal(paths[2].weight, -2));
+	REQUIRE(float_equal(paths[3].weight, 0));
+	REQUIRE(float_equal(paths[4].weight, 1));
+	REQUIRE(float_equal(paths[5].weight, 7));
+	REQUIRE(float_equal(paths[6].weight, 8));
+
 }
 
 TEST_CASE("1 Chain (using incremental spur)" * doctest::timeout(300)) {
@@ -251,7 +264,7 @@ TEST_CASE("2 chains (using incremental spur)" * doctest::timeout(300)) {
 	REQUIRE(paths.size() == 0);
 }
 
-TEST_CASE("3 chains (using incremental spur)" * doctest::timeout(50000000)) {
+TEST_CASE("3 chains (using incremental spur)" * doctest::timeout(300)) {
 	ink::Ink ink;
 	build_chain1(ink);
 	build_chain2(ink);	

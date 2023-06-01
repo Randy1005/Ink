@@ -21,8 +21,8 @@ int main(int argc, char *argv[]) {
   }
 
 	
-	std::ofstream ofs("c7552.graph");
-  timer.dump_graph_ops(ofs, 10, 10000);
+	std::ofstream ofs("c7552.graph.updates");
+  timer.dump_graph_ops(ofs, 1, 10000, true, 1);
 
 
   return 0;

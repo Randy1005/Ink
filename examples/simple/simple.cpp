@@ -32,8 +32,8 @@ int main(int argc, char *argv[]) {
   timer.dump_power(std::cout);
 
   // dump graph operations
-  std::ofstream ofs("simple.graph");
-  timer.dump_graph_ops(ofs, 1, 20);
+  std::ofstream ofs("simple.graph.updates");
+  timer.dump_graph_ops(ofs, 1, 20, true, 1);
 
 
   return 0;
