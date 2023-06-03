@@ -161,8 +161,69 @@ TEST_CASE("Update Edges 2" * doctest::timeout(300)) {
 	REQUIRE(float_equal(paths[4].weight, 12));
 	REQUIRE(float_equal(paths[5].weight, 13));
 	REQUIRE(float_equal(paths[6].weight, 14));
+}
+
+
+TEST_CASE("Multi Source Update Edges" * doctest::timeout(300)) {
+	ink::Ink ink;
+
+	ink.insert_edge("S", "A", 0);
+	ink.insert_edge("S", "B", 0);
+	ink.insert_edge("S", "C", 0);
+
+	ink.insert_edge("A", "D", 0);
+	ink.insert_edge("A", "E", 1);
+	ink.insert_edge("A", "F", 2);
+
+	ink.insert_edge("D", "K", -1);
+	ink.insert_edge("D", "L", 4);
+	ink.insert_edge("F", "M", 3);
+	ink.insert_edge("F", "N", 1);
+
+	ink.insert_edge("B", "F", -1);
+	ink.insert_edge("B", "G", 8);
+	ink.insert_edge("B", "H", 1);
+
+	ink.insert_edge("H", "O", 7);
+	ink.insert_edge("H", "P", 2);
+
+	ink.insert_edge("C", "H", 2);
+	ink.insert_edge("C", "I", 3);
+	ink.insert_edge("C", "J", 4);
+
+	ink.insert_edge("J", "Q", 4);
+	ink.insert_edge("J", "R", -3);
+
+	auto paths = ink.report_incremental(20);
+	REQUIRE(paths.size() == 15);
+
+	// remove edge S->B, modify edge S->C
+	ink.remove_edge("S", "B");
+	ink.insert_edge("S", "C", 5);
+	
+	// pfxt node SC remains a pfxt node, record as leader
+	// pfxt node BH, BG, FM would be recorded as leader
+	paths = ink.report_incremental(20);
+	REQUIRE(paths.size() == 15);
+	REQUIRE(float_equal(paths[0].weight, -1));
+	REQUIRE(float_equal(paths[1].weight, 0));
+	REQUIRE(float_equal(paths[2].weight, 1));
+	REQUIRE(float_equal(paths[3].weight, 2));
+	REQUIRE(float_equal(paths[4].weight, 3));
+	REQUIRE(float_equal(paths[5].weight, 3));
+	REQUIRE(float_equal(paths[6].weight, 4));
+	REQUIRE(float_equal(paths[7].weight, 5));
+	REQUIRE(float_equal(paths[8].weight, 6));
+	REQUIRE(float_equal(paths[9].weight, 8));
+	REQUIRE(float_equal(paths[10].weight, 8));
+	REQUIRE(float_equal(paths[11].weight, 8));
+	REQUIRE(float_equal(paths[12].weight, 9));
+	REQUIRE(float_equal(paths[13].weight, 13));
+	REQUIRE(float_equal(paths[14].weight, 14));
+
 
 }
+
 
 TEST_CASE("1 Chain (using incremental spur)" * doctest::timeout(300)) {
 	ink::Ink ink;

@@ -322,7 +322,7 @@ std::vector<Path> Ink::report(size_t K) {
 	return heap.extract();
 }
 
-std::vector<Path> Ink::report_global(size_t K) {
+std::vector<Path> Ink::report_incsfxt(size_t K) {
 	if (K == 0) {
 		return {};
 	}
@@ -345,7 +345,7 @@ std::vector<Path> Ink::report_global(size_t K) {
 
 	PathHeap heap;
 	auto beg = std::chrono::steady_clock::now();
-	_spur_global(K, heap);	
+	_spur_incsfxt(K, heap);	
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
@@ -357,7 +357,7 @@ std::vector<Path> Ink::report_global(size_t K) {
 	return heap.extract();
 }
 
-std::vector<Path> Ink::report_global_rebuild(size_t K) {
+std::vector<Path> Ink::report_rebuild(size_t K) {
 	if (K == 0) {
 		return {};
 	}
@@ -379,7 +379,12 @@ std::vector<Path> Ink::report_global_rebuild(size_t K) {
 	}
 
 	PathHeap heap;
+	auto beg = std::chrono::steady_clock::now();
 	_spur_rebuild(K, heap);	
+	auto end = std::chrono::steady_clock::now();
+	auto elapsed = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	_elapsed_time += elapsed;
 
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -554,7 +559,7 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os, size_t mode) 
 			
 			if (buf == "report") {
 				is >> buf;
-				auto paths = report_global(std::stoul(buf));
+				auto paths = report_incsfxt(std::stoul(buf));
 				os << paths.size() << '\n';
 				for (const auto& p : paths) {
 					os << p.weight << ' ';
@@ -588,15 +593,10 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os, size_t mode) 
 		}
 		std::cout << "finished reading " << num_edges() << " edges.\n";	
 		std::cout << "finished reading " << num_verts() << " vertices.\n";
-		std::cout << "spur_global runtime = " << _elapsed_time << " ns. (" 
+		std::cout << "spur_incsfxt runtime = " << _elapsed_time << " ns. (" 
 							<< _elapsed_time / 1000000000.0f << " sec).\n";
-		std::cout << "euler tour runtime = " << _elapsed_time_idl  
-							<< " ns.\n";
 		std::cout << "spur loop runtime = " << _elapsed_time_sploop  
 							<< " ns.\n";
-		std::cout << "leftover nodes transfer runtime = " << _elapsed_time_tr  
-							<< " ns.\n";
-		std::cout << "loop count = " << loop_cnt << '\n';
 	}
 	else if (mode == 1) {
 		while (true) {
@@ -649,11 +649,54 @@ void Ink::_read_ops_and_report(std::istream& is, std::ostream& os, size_t mode) 
 							<< " ns.\n";
 		std::cout << "leftover nodes transfer runtime = " << _elapsed_time_tr  
 							<< " ns.\n";
-		std::cout << "loop count = " << loop_cnt << '\n';
-		std::cout << "pfxt node count = " << pfxt_node_cnt << '\n';
-	
 	}
-	
+	else if (mode == 2) {
+		while (true) {
+			is >> buf;
+			if (is.eof()) {
+				break;
+			}
+			
+			if (buf == "report") {
+				is >> buf;
+				auto paths = report_rebuild(std::stoul(buf));
+				os << paths.size() << '\n';
+				for (const auto& p : paths) {
+					os << p.weight << ' ';
+				}
+				os << '\n';
+			}
+
+			if (buf == "insert_edge") {
+				std::array<std::optional<float>, 8> ws;
+				is >> buf;
+				std::string from(buf);
+				is >> buf;
+				std::string to(buf);
+				
+				for (size_t i = 0; i < NUM_WEIGHTS; i++) {
+					is >> buf;
+					if (buf == "n/a") {
+						ws[i] = std::nullopt;
+					}
+					else {
+						ws[i] = stof(buf);
+					}
+				}
+
+				insert_edge(from, to,
+					ws[0], ws[1], ws[2], ws[3],
+					ws[4], ws[5], ws[6], ws[7]);
+			}
+
+
+		}
+		std::cout << "finished reading " << num_edges() << " edges.\n";	
+		std::cout << "finished reading " << num_verts() << " vertices.\n";
+		std::cout << "spur_rebuild runtime = " << _elapsed_time << " ns. (" 
+							<< _elapsed_time / 1000000000.0f << " sec).\n";
+	}
+
 	
 }
 
@@ -1044,7 +1087,7 @@ void Ink::_traverse_leader(
 
 }
 
-void Ink::_spur_global(size_t K, PathHeap& heap) {
+void Ink::_spur_incsfxt(size_t K, PathHeap& heap) {
 	_sfxt_cache();
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
@@ -1094,24 +1137,35 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 	_leaders.resize(num_edges());
 
 	// we apply euler tour to get the lowest affected nodes (leader nodes)
-	std::vector<PfxtNode*> euler_tour;
-	
+	// NOTE: define euler tour as a private member
+	// NOTE: highly iterative function, leave it up to class scope
+	//			 to free this vector
+	//			 we don't wanna malloc and free tons of time in iterative workloads
+	_euler_tour.clear();
 	auto beg = std::chrono::steady_clock::now();
 	if (_pfxt_src != nullptr && !_pfxt_nodes.empty()) {
 		assert(_pfxt_src->parent == nullptr);
 		for (auto c : _pfxt_src->children) {
-			_identify_leaders(c, euler_tour);
+			_identify_leaders(c, _euler_tour);
 		}
 	}
+	
+
+	// NOTE: we should be targetting when we already have an extremely
+	// large graph, ~400000 edges, and we compare the performance 
+	// at the report of number 400001th edge update 
+	// because when we have less edges, rebuild pfxt is definitely faster
+	//
+	// and probably update the 1st edge would benefit my algorithm
+	//
+	// and we would need some heuristics to determine if it is worth the
+	// time to do leader_identification or just redo everything
 	
 	
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	_elapsed_time_idl += elapsed;
-
-
-
 
 	beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
@@ -1130,9 +1184,6 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 		// get the edge pointer and weight selection of this node
 		if (node->link) {
 			auto [eptr, w_sel] = _decode_edge(*node->link);
-			assert(eptr != nullptr);
-			assert(eptr->id < _leaders.size());
-			assert(w_sel < NUM_WEIGHTS);
 			if (_leaders[eptr->id][w_sel]) {
 				// we recorded a leader from previous report
 				// we can traverse this leader's subtree and
@@ -1141,7 +1192,6 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 				for (auto c : l->children) {
 					_traverse_leader(c, node, pfxt);
 				}
-
 			}
 		}
 		
@@ -1174,22 +1224,23 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	_elapsed_time_sploop += elapsed;
 
-
 	
 
-	beg = std::chrono::steady_clock::now();
-	
-	_pfxt_nodes.clear();
 	_pfxt_src = pfxt.src;
 	assert(_pfxt_src != nullptr);
-	_pfxt_nodes = std::move(pfxt.paths);
-	// if there's any prefix tree nodes left
-	// transfer them to _pfxt_nodes
-	_pfxt_nodes.reserve(_pfxt_nodes.size() + pfxt.num_nodes());	
-	std::move(pfxt.nodes.begin(), pfxt.nodes.end(), std::back_inserter(_pfxt_nodes));
-	
-	pfxt_node_cnt += _pfxt_nodes.size();
 
+	beg = std::chrono::steady_clock::now();
+	// transfer all nodes to class members
+	// TODO: this is still time consuming
+	// 700th iteration, it's already 10ms
+	_pfxt_nodes = std::move(pfxt.nodes);
+	_pfxt_paths = std::move(pfxt.paths);
+	
+	end = std::chrono::steady_clock::now();
+	elapsed = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	_elapsed_time_tr += elapsed;	
+	
 	// reset edge states
 	for (auto e : _eptrs) {
 		if (e != nullptr) {
@@ -1197,12 +1248,9 @@ void Ink::_spur_incremental(size_t K, PathHeap& heap) {
 			e->modified = false;
 		}
 	}
-
 	
-	end = std::chrono::steady_clock::now();
-	elapsed = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_tr += elapsed;	
+	// std::cout << "iteration " << iters++ << ": transfer time = " << elapsed << " ns\n"; 
+	
 } 
 
 

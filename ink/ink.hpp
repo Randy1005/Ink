@@ -279,8 +279,8 @@ public:
 
 	std::vector<Path> report(size_t K);
 
-	std::vector<Path> report_global(size_t K);
-	std::vector<Path> report_global_rebuild(size_t K);
+	std::vector<Path> report_incsfxt(size_t K);
+	std::vector<Path> report_rebuild(size_t K);
 	std::vector<Path> report_incremental(size_t K);
 	
 
@@ -356,7 +356,7 @@ private:
 	and spur along the path to generate other candidates
 	NOTE: using a global suffix tree
 	*/
-	void _spur_global(size_t K, PathHeap& heap);
+	void _spur_incsfxt(size_t K, PathHeap& heap);
 	void _spur_rebuild(size_t K, PathHeap& heap);
 	void _spur_incremental(size_t K, PathHeap& heap);
 
@@ -495,9 +495,14 @@ private:
 	std::optional<Sfxt> _global_sfxt{std::nullopt};
 
 
-	// prefix nodes from the last report
+	// prefix nodes from the last report iteration
 	// (NOT heapified)
+	// NOTE: mimic Pfxt class instead
+	// use 2 separate vectors to transfer node ownerships
+	// reduce the overhead of std::move
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
+	std::vector<std::unique_ptr<PfxtNode>> _pfxt_paths;
+
 	PfxtNode* _pfxt_src{nullptr};
 
 	// leader prefix nodes
@@ -508,6 +513,9 @@ private:
 	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
 
 
+	// euler tour vector
+	std::vector<PfxtNode*> _euler_tour;
+	
 	// maximum prefix tree nodes
 	size_t _max_pfxt_nodes{0};
 
@@ -527,7 +535,7 @@ private:
 	size_t _elapsed_time_tr{0};
 	
 	size_t loop_cnt{0};
-	
+	size_t iters{0};	
 	size_t pfxt_node_cnt{0};
 
 };
