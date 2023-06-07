@@ -1,4 +1,5 @@
 #pragma once
+#include <stack>
 #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
 
@@ -15,6 +16,18 @@ class Ink;
 struct Point;
 struct Path;
 class PathHeap;
+
+
+struct PfxtNodeInfo {
+	PfxtNodeInfo(PfxtNode* node, size_t children_cnt) :
+		node{node},
+		children_cnt{children_cnt}
+	{}
+
+	PfxtNode* node;
+	size_t children_cnt;
+};
+
 
 /**
 @brief Vertex
@@ -58,18 +71,6 @@ struct Vert {
 	bool is_in_update_list{false};
 };
 
-/**
-@brief Edge States
-	1. belongs to prefix tree -> belongs to prefix tree
-	2. belongs to prefix tree -> belongs to suffix tree
-	3. removed from graph
-*/
-enum class EState {
-	PFXT,
-	SFXT,
-	REMOVED
-};
-
 
 struct Edge {
 	Edge() = default;
@@ -110,7 +111,7 @@ struct Edge {
 	// static array of optional weights
 	std::array<std::optional<float>, NUM_WEIGHTS> weights;
 
-	std::optional<EState> state{std::nullopt};
+	// records if an edge's weights had been modified
 	bool modified{false};
 
 };
@@ -184,15 +185,11 @@ struct PfxtNode {
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
-	
-	// record if visited in euler tour
-	bool visited_euler{false};
-
-	// record if visited in leader subtree
-	// dfs traversal
-	bool visited_dfs{false};
-
-	bool visited_subtreecnt{false};
+		
+	// record this node's subtree sequence index
+	// begin and end
+	size_t subtree_beg;
+	size_t subtree_end;
 };
 
 
@@ -224,11 +221,6 @@ struct Pfxt {
 	
 	PfxtNode* pop();
 	
-	// overloaded version of pop
-	// instead of transferring ownership to paths
-	// we just transfer to global storage 
-	PfxtNode* pop(std::vector<std::unique_ptr<PfxtNode>>& glob_nodes);
-
 	PfxtNode* top() const;	
 
 	const Sfxt& sfxt;
@@ -243,8 +235,8 @@ struct Pfxt {
 	// nodes (to use as a min heap)
 	std::vector<std::unique_ptr<PfxtNode>> nodes;
 
-	// source
-	PfxtNode* src;
+	// sources
+	std::vector<PfxtNode*> srcs;
 };
 
 
@@ -254,10 +246,9 @@ class Ink {
 public:
 	Ink() = default;	
 
-	void read_ops_and_report(
+	void read_ops(
 		const std::string& in, 
-		const std::string& out, 
-		size_t mode);
+		const std::string& out);
 
 	Vert& insert_vertex(const std::string& name);
 	
@@ -279,14 +270,19 @@ public:
 
 	std::vector<Path> report(size_t K);
 
-	std::vector<Path> report_incsfxt(size_t K);
+	std::vector<Path> report_incsfxt(size_t K, bool save_pfxt_nodes = false);
 	std::vector<Path> report_rebuild(size_t K);
-	std::vector<Path> report_incremental(size_t K);
+	std::vector<Path> report_incremental(
+		size_t K, 
+		bool save_pfxt_nodes = false,
+		bool use_leaders = false);
 	
 
 	void dump(std::ostream& os) const;
 
 	void dump_pfxt(std::ostream& os) const;
+
+	void dump_profile(std::ostream& os, bool reset = false);
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -330,7 +326,7 @@ private:
 	};
 
 	
-	void _read_ops_and_report(std::istream& is, std::ostream& os, size_t mode);
+	void _read_ops(std::istream& is, std::ostream& os);
 	
 	void _topologize(Sfxt& sfxt, size_t root) const;
 
@@ -356,9 +352,13 @@ private:
 	and spur along the path to generate other candidates
 	NOTE: using a global suffix tree
 	*/
-	void _spur_incsfxt(size_t K, PathHeap& heap);
+	void _spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes = false);
 	void _spur_rebuild(size_t K, PathHeap& heap);
-	void _spur_incremental(size_t K, PathHeap& heap);
+	void _spur_incremental(
+		size_t K, 
+		PathHeap& heap, 
+		bool save_pfxt_nodes = false,
+		bool use_leaders = false);
 
 	/**
 	@brief Spur from the path. Scan the current critical path
@@ -381,15 +381,22 @@ private:
 	/**
 	@brief apply euler tour to identify leader prefix tree nodes, 
 	i.e. nodes that lead a subtree which is not affected and reusable
+	(also identify the subtree sequence in the dfs traversal)
 	*/
 	void _identify_leaders(
-		PfxtNode* root, 
-		std::vector<PfxtNode*>& euler_tour);
+		PfxtNode* curr,
+		std::vector<PfxtNode*>& dfs,
+		std::vector<PfxtNode*>& dfs_marked,
+		size_t& order);
 
-	void _traverse_leader(
-		PfxtNode* node, 
-		PfxtNode* parent, 
-		Pfxt& pfxt) const;
+	/**
+	@brief propagate costs from the leader downwards to the subtree it leads
+	@param leader the subtree root from the old pfxt
+	@param node the pfxt node in the new pfxt
+	@param the new pfxt we're currently expanding on
+	*/
+	void _propagate_subtree(PfxtNode* leader, PfxtNode* node, Pfxt& pfxt);
+
 
 	/**
 	@brief Recover the complete path from a given prefix tree node
@@ -503,7 +510,7 @@ private:
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_paths;
 
-	PfxtNode* _pfxt_src{nullptr};
+	std::vector<PfxtNode*> _pfxt_srcs;
 
 	// leader prefix nodes
 	// NOTE: we only store a raw pointer, an OBSERVER
@@ -512,18 +519,27 @@ private:
 	// observer's information
 	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
 
+	std::stack<PfxtNodeInfo> _info_stk;
 
-	// euler tour vector
-	std::vector<PfxtNode*> _euler_tour;
+	// records if a link (edge, w_sel pair) became the sfxt's link
+	std::vector<std::array<bool, NUM_WEIGHTS>> _belongs_to_sfxt;
 	
-	// maximum prefix tree nodes
-	size_t _max_pfxt_nodes{0};
+	// dfs marked vector
+	// to record the nodes that: 
+	// 1. became sfxt nodes 
+	// or 
+	// 2. updated but remained pfxt nodes
+	std::vector<PfxtNode*> _dfs_marked;
 
-	// leader count
-	size_t _leader_cnt{0};
+	// dfs vector (full dfs traversal)
+	// for subtree lookup
+	std::vector<PfxtNode*> _dfs_full;
+	
+	// leader matched count 
+	size_t _leader_matched{0};
 	
 	// elapsed time: whole spur function
-	size_t _elapsed_time{0};
+	size_t _elapsed_time_spur{0};
 
 	// elapsed time: identify leaders
 	size_t _elapsed_time_idl{0};
@@ -534,10 +550,6 @@ private:
 	// elapsed time: transfer leftover nodes
 	size_t _elapsed_time_tr{0};
 	
-	size_t loop_cnt{0};
-	size_t iters{0};	
-	size_t pfxt_node_cnt{0};
-
 };
 
 /**

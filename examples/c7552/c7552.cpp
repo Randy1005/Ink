@@ -21,9 +21,8 @@ int main(int argc, char *argv[]) {
   }
 
 	
-	std::ofstream ofs("c7552.graph.updates");
-  timer.dump_graph_ops(ofs, 1, 10000, true, 1);
-
+	std::ofstream ofs("c7552.edges");
+  timer.dump_edge_insertions(ofs);
 
   return 0;
 }

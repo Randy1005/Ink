@@ -19,9 +19,11 @@ int main(int argc, char *argv[]) {
     std::cout << paths[i] << '\n';
   }
 
-  std::ofstream ofs("vga_lcd.graph.updates");
-  timer.dump_graph_ops(ofs, 50, 100000, true, 50); 
-	
+  //std::ofstream ofs("vga_lcd.graph.updates");
+  //timer.dump_graph_ops(ofs, 50, 100000, true, 50); 
+
+  std::ofstream ofs("vga_lcd.edges");
+  timer.dump_edge_insertions(ofs);
 
 
   return 0;
