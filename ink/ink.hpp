@@ -172,14 +172,14 @@ struct PfxtNode {
 		float c, 
 		size_t f, 
 		size_t t, 
-		const Edge* e, 
+		Edge* e, 
 		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l);
 	
 	float cost;
 	size_t from;
 	size_t to;
-	const Edge* edge{nullptr};
+	Edge* edge{nullptr};
 	PfxtNode* parent{nullptr};
 	std::optional<std::pair<size_t, size_t>> link;
 
@@ -190,6 +190,10 @@ struct PfxtNode {
 	// begin and end
 	size_t subtree_beg;
 	size_t subtree_end;
+
+	// cache whether this pfxt node was made a path
+	// in the last report
+	bool is_path{false};
 };
 
 
@@ -215,7 +219,7 @@ struct Pfxt {
 		float c,
 		size_t f,
 		size_t t,
-		const Edge* e,
+		Edge* e,
 		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l);	
 	
@@ -234,6 +238,9 @@ struct Pfxt {
 
 	// nodes (to use as a min heap)
 	std::vector<std::unique_ptr<PfxtNode>> nodes;
+
+	// unused nodes
+	std::vector<std::unique_ptr<PfxtNode>> unused;
 
 	// sources
 	std::vector<PfxtNode*> srcs;
@@ -280,7 +287,7 @@ public:
 
 	void dump(std::ostream& os) const;
 
-	void dump_pfxt(std::ostream& os) const;
+	void dump_pfxt_srcs(std::ostream& os) const;
 
 	void dump_profile(std::ostream& os, bool reset = false);
 
@@ -291,9 +298,7 @@ public:
 	inline size_t num_edges() const {
 		return _edges.size();
 	}
-	
-	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>>
-		get_leaders() const;
+
 
 private:
 	/**
@@ -395,7 +400,12 @@ private:
 	@param node the pfxt node in the new pfxt
 	@param the new pfxt we're currently expanding on
 	*/
-	void _propagate_subtree(PfxtNode* leader, PfxtNode* node, Pfxt& pfxt);
+	void _propagate_subtree(
+		PfxtNode* leader, 
+		PfxtNode* node, 
+		Pfxt& pfxt, 
+		PathHeap& heap,
+		size_t K);
 
 
 	/**
@@ -534,10 +544,13 @@ private:
 	// dfs vector (full dfs traversal)
 	// for subtree lookup
 	std::vector<PfxtNode*> _dfs_full;
-	
+
 	// leader matched count 
 	size_t _leader_matched{0};
 	
+	// search space expansion count
+	size_t _sses{0};
+
 	// elapsed time: whole spur function
 	size_t _elapsed_time_spur{0};
 
@@ -549,7 +562,12 @@ private:
 
 	// elapsed time: transfer leftover nodes
 	size_t _elapsed_time_tr{0};
-	
+
+
+	size_t _elapsed_prop{0};
+	size_t _elapsed_sse{0};
+	size_t _elapsed_pop{0};
+	size_t _total_nodes{0};
 };
 
 /**
