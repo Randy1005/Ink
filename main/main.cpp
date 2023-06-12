@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
 	else if (mode == 1) {
 		std::cout << "+incpfxt\n";
 	}
-	else {
+	else if (mode == 2) {
 		std::cout << "redo-all\n";
 	}
 
@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
 	}
 	else if (mode == 2) {
 		ink.dump_profile(std::cout, true);
-		// report again with incremental sfxt
+		// report again with sfxt/pfxt rebuilt
 		auto paths = ink.report_rebuild(num_paths);
 		ink.dump_profile(std::cout, true);
 		
@@ -72,6 +72,10 @@ int main(int argc, char* argv[]) {
 		}
 
 	
+	}
+	else if (mode == 3) {
+		std::ofstream ofs("pfxt_srcs.out");
+		ink.dump_pfxt_srcs(ofs);
 	}
 	
 	return 0;

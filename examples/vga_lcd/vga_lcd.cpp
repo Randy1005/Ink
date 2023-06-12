@@ -24,6 +24,12 @@ int main(int argc, char *argv[]) {
 
   std::ofstream ofs("vga_lcd.edges");
   timer.dump_edge_insertions(ofs);
+  
+  std::ofstream ofs2("vga_lcd.connections");
+  timer.dump_connections(ofs2, 10);
+
+  std::ofstream ofs3("vga_lcd.pfxt_srcs");
+  
 
 
   return 0;
