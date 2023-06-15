@@ -831,8 +831,8 @@ void Ink::_sfxt_cache() {
 
 			// cache the current sfxt link of v, 
 			// so we can check if the link got updated
-			// NOTE: this part is sus, it's probably not marking
-			// the sfxt edges right
+			// NOTE: this part is sus, it's probably not marking the sfxt edges right
+			// TODO: look at this case later
 			auto old_link = sfxt.links[v];
 
 			// for each of v's fanout we redo relaxation
@@ -847,15 +847,15 @@ void Ink::_sfxt_cache() {
 			}	
 		
 			// compare the cached link to the current link
-			if (sfxt.links[v] != old_link) {
-				// this means another edge took over and became the successor
-				// or another weight is selected for the same edge
-				// NOTE: either case we need a vector<array[NUM_WEIGHTS]>
-				// to mark if a link took over, because multiple pfxt nodes
-				// may point to the same edge, but uses different weights
-				auto [eptr, w_sel] = _decode_edge(*sfxt.links[v]);
-				_belongs_to_sfxt[eptr->id][w_sel] = true;
-			}
+			//if (sfxt.links[v] != old_link) {
+			//	// this means another edge took over and became the successor
+			//	// or another weight is selected for the same edge
+			//	// NOTE: either case we need a vector<array[NUM_WEIGHTS]>
+			//	// to mark if a link took over, because multiple pfxt nodes
+			//	// may point to the same edge, but uses different weights
+			//	auto [eptr, w_sel] = _decode_edge(*sfxt.links[v]);
+			//	_belongs_to_sfxt[eptr->id][w_sel] = true;
+			//}
 
 			
 		}	
@@ -1005,108 +1005,164 @@ void Ink::_propagate_subtree(
 	Pfxt& pfxt, 
 	PathHeap& heap,
 	size_t K) {
-	_info_stk = {};
-	_info_stk.emplace(node, leader->children.size());
-
-	// traverse the flattened subtree of this leader
-	// NOTE:
-	// note that we're just using the old nodes as a way to
-	// recover information, when we push we have to use the current pfxt
-	
-	for (size_t i = leader->subtree_beg + 1; i < leader->subtree_end; i++) {
-		auto s = _dfs_full[i];
-		s->edge->modified = false;
-	
-		while (_info_stk.top().children_cnt == 0) {
-			_info_stk.pop();
-		}
-	
-		auto& top = _info_stk.top();
-		top.children_cnt--;
-		
-		auto parent = top.node;
-
-		// calculate detour cost
-		auto [eptr, w_sel] = _decode_edge(*s->link);
-		auto v = s->to;
-		auto u = s->from;
-		auto w = *eptr->weights[w_sel];
-		auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
-
-		// calculate all the information to construct a pfxt node
-		auto cost = detour_cost + parent->cost;
-		auto f = s->from;
-		auto t = s->to;
-		auto e = s->edge;
-		auto l = s->link;
-
-		// using the updated info, push a new pfxt node
-		// auto p = pfxt.push(cost, f, t, e, parent, l);
-		
-		// NOTE: idea: can I directly recover path and push to the path heap?
-		// if I know:
-		// 1. num of paths have not exceeded previous report
-		// 2. pfxt node is marked as path
-		auto& sfxt = *_global_sfxt;
-		auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
-		auto p_obs = p.get();
-	
-		
-		if (parent) {
-			parent->children.emplace_back(p_obs);
-		}
-
-		if (s->is_path) {
-			pfxt.paths.push_back(std::move(p));
-			
-			// recover the complete path
-			auto path = std::make_unique<Path>(0.0f, nullptr);
-			_recover_path(*path, sfxt, p_obs, sfxt.T);
-
-			path->weight = path->back().dist;
-			if (path->size() > 1) {
-				heap.push(std::move(path));
-				heap.fit(K);
-			}
-		}
-		else {
-			pfxt.unused.push_back(std::move(p));	
-		}
-
-		if (s->children.size() != 0) {
-			_info_stk.emplace(p_obs, s->children.size());
-		}
-
-	}
-	
 
 
-	// TODO: this can be parametrized, we can try out 
-	// recover n levels from this subtree
-	// maintaining is_path is also important
-	// we can know that if this node was used in the
-	// previous iteration
-	//leader->edge->modified = false;
+	//_info_stk = {};
+	//_info_stk.emplace(node, leader->children.size());
+
+	//// traverse the flattened subtree of this leader
+	//for (size_t i = leader->subtree_beg + 1; i < leader->subtree_end; i++) {
+	//	auto s = _dfs_full[i];
 	//
-	//for (auto c : leader->children) {
-	//	c->edge->modified = false;
+	//	while (_info_stk.top().children_cnt == 0) {
+	//		_info_stk.pop();
+	//	}
+	//
+	//	auto& top = _info_stk.top();
+	//	top.children_cnt--;
 	//	
-	//	// detour cost
-	//	auto [eptr, w_sel] = _decode_edge(*c->link);
-	//	auto v = c->to;
-	//	auto u = c->from;
+	//	auto parent = top.node;
+
+	//	// calculate detour cost
+	//	auto [eptr, w_sel] = _decode_edge(*s->link);
+	//	auto v = s->to;
+	//	auto u = s->from;
 	//	auto w = *eptr->weights[w_sel];
 	//	auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
+
 	//	// calculate all the information to construct a pfxt node
-	//	auto cost = detour_cost + node->cost;
-	//	auto f = c->from;
-	//	auto t = c->to;
-	//	auto e = c->edge;
-	//	auto l = c->link;
-	//	
+	//	auto cost = detour_cost + parent->cost;
+	//	auto f = s->from;
+	//	auto t = s->to;
+	//	auto e = s->edge;
+	//	auto l = s->link;
+
 	//	// using the updated info, push a new pfxt node
-	//	pfxt.push(cost, f, t, e, node, l);
+	//	// auto p = pfxt.push(cost, f, t, e, parent, l);
+	//	
+	//	// NOTE: idea: can I directly recover path and push to the path heap?
+	//	// if I know:
+	//	// 1. num of paths have not exceeded previous report
+	//	// 2. pfxt node is marked as path
+	//	auto& sfxt = *_global_sfxt;
+	//	auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
+	//	auto p_obs = p.get();
+	//
+	//	
+	//	if (parent) {
+	//		parent->children.emplace_back(p_obs);
+	//	}
+
+	//	if (s->is_path) {
+	//		pfxt.paths.push_back(std::move(p));
+	//	
+	//		// recover the complete path
+	//		auto path = std::make_unique<Path>(0.0f, nullptr);
+	//		_recover_path(*path, sfxt, p_obs, sfxt.T);
+
+	//		path->weight = path->back().dist;
+	//		if (path->size() > 1) {
+	//			heap.push(std::move(path));
+	//			heap.fit(K);
+	//		}
+	//	}
+	//	else {
+	//		pfxt.unused.push_back(std::move(p));
+	//	}
+
+	//	if (s->children.size() != 0) {
+	//		_info_stk.emplace(p_obs, s->children.size());
+	//	}
+
 	//}
+	
+
+	auto& sfxt = *_global_sfxt;
+	for (auto c : leader->children) {
+
+		auto [eptr, w_sel] = _decode_edge(*c->link);
+
+		// since c has a leader parent
+		// c itself is also a leader
+		_leaders[eptr->id][w_sel] = c;
+
+		// detour cost
+		auto v = c->to;
+		auto u = c->from;
+		auto w = *eptr->weights[w_sel];
+		auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u]; 
+		
+		// calculate all the information to construct a pfxt node
+		auto cost = detour_cost + node->cost;
+		auto f = c->from;
+		auto t = c->to;
+		auto e = c->edge;
+		auto l = c->link;
+	
+		// using the updated info, push a new pfxt node
+		pfxt.push(cost, f, t, e, node, l);
+	}
+
+	//auto& sfxt = *_global_sfxt;
+	//_bfs_old.clear();	
+	//_bfs_old.push_back(leader);
+	//_bfs_new.clear();
+	//_bfs_new.emplace_back(node);
+	//while (!_bfs_old.empty()) {
+	//	auto s = _bfs_old.front();
+	//	_bfs_old.pop_front();
+	//	auto parent = _bfs_new.front();
+	//	_bfs_new.pop_front();
+
+	//	for (auto c : s->children) {
+	//		// calculate detour cost
+	//		auto [eptr, w_sel] = _decode_edge(*c->link);
+	//		auto v = c->to;
+	//		auto u = c->from;
+	//		auto w = *eptr->weights[w_sel];
+	//		auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u]; 
+
+	//		// calculate all the information to construct a pfxt node
+	//		auto cost = detour_cost + parent->cost;
+	//		auto f = c->from;
+	//		auto t = c->to;
+	//		auto e = c->edge;
+	//		auto l = c->link;
+
+	//		auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
+	//		auto p_obs = p.get();
+
+	//		if (parent) {
+	//			parent->children.emplace_back(p_obs);
+	//		}
+
+	//		if (c->is_path) {
+	//			pfxt.paths.push_back(std::move(p));
+	//		
+	//			// recover the complete path
+	//			auto path = std::make_unique<Path>(0.0f, nullptr);
+	//			_recover_path(*path, sfxt, p_obs, sfxt.T);
+
+	//			path->weight = path->back().dist;
+	//			if (path->size() > 1) {
+	//				heap.push(std::move(path));
+	//				heap.fit(K);
+	//			}
+
+	//			if (heap.size() >= K) {
+	//				break;
+	//			}
+	//		}
+	//		else {
+	//			pfxt.unused.push_back(std::move(p));
+	//		}	
+
+	//		_bfs_old.push_back(c);
+	//		_bfs_new.push_back(p_obs);
+	//	}
+
+	//}
+
 
 }
 
@@ -1118,13 +1174,7 @@ void Ink::_spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes) {
 
 	auto beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
-		_total_nodes += pfxt.num_nodes();
-		//auto beg = std::chrono::steady_clock::now();
 		auto node = pfxt.pop();
-		//auto end = std::chrono::steady_clock::now();
-		//auto elapsed = 
-		//	std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-		//_elapsed_pop += elapsed;
 		
 		// no more paths to generate
 		if (node == nullptr) {
@@ -1156,17 +1206,11 @@ void Ink::_spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes) {
 	_elapsed_time_sploop += elapsed;
 
 	
-	//beg = std::chrono::steady_clock::now();
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = pfxt.srcs;
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
-		
 	}
-	//end = std::chrono::steady_clock::now();
-	//elapsed = 
-	//	std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	//_elapsed_time_tr += elapsed;
 }
 
 void Ink::_spur_incremental(
@@ -1188,9 +1232,6 @@ void Ink::_spur_incremental(
 
 		size_t order{0};
 		// we apply dfs to get the lowest affected nodes (defined as leader nodes)
-		// NOTE: highly iterative function, leave it up to class scope
-		//			 to free this vector
-		//			 we don't wanna malloc and free tons of time in iterative workloads
 		_dfs_marked.clear();
 		_dfs_full.clear();
 		for (auto src : _pfxt_srcs) {
@@ -1211,28 +1252,10 @@ void Ink::_spur_incremental(
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	_elapsed_time_idl += elapsed;
-
-	// NOTE: we should be targetting when we already have an extremely
-	// large graph, ~400000 edges, and we compare the performance 
-	// at the report of number 400001th edge update 
-	// because when we have less edges, rebuild pfxt is definitely faster
-	//
-	// and probably update the _pfxt_src edges would benefit my algorithm
-	//
-	// and we would need some heuristics to determine if it is worth the
-	// time to do leader_identification or just redo everything
-	
 	
 	beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
-		_total_nodes += pfxt.num_nodes();
-
-		//auto beg = std::chrono::steady_clock::now();
 		auto node = pfxt.pop();
-		//auto end = std::chrono::steady_clock::now();
-		//auto elapsed = 
-		//	std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-		//_elapsed_pop += elapsed;
 		
 		// no more paths to generate
 		if (node == nullptr) {
@@ -1249,47 +1272,33 @@ void Ink::_spur_incremental(
 			heap.fit(K);
 		}
 
-
 		if (heap.size() >= K) {
 			break;
 		}
 
 		// get the edge pointer and weight selection of this node
-		//auto beg = std::chrono::steady_clock::now();
 		if (node->link && use_leaders) {
 			auto [eptr, w_sel] = _decode_edge(*node->link);
 			if (_leaders[eptr->id][w_sel]) {
 				_leader_matched++;
 				// we recorded a leader from previous report
-				// we can traverse this leader's subtree and
 				// recover its children prefix tree nodes
 				auto l = _leaders[eptr->id][w_sel];
-				_propagate_subtree(l, node, pfxt, heap, K);	
+				_propagate_subtree(l, node, pfxt, heap, K);
 			}
 		}
-		//auto end = std::chrono::steady_clock::now();
-		//auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-		//_elapsed_prop += elapsed;
-	
-		// NOTE:
-		// if this node already has children before spur
-		// that means this node is recovered from a leader
-		// we should not call spur on this node again
-		// as this would cause duplicate children to appear
-		if (node->children.size() != 0) {
+
+
+		if (node->num_children() != 0) {
+			// don't call spur on this node
+			// its children were already found
 			continue;
 		}
-
 
 		// expand search space
 		// find children (more detours) for node
 		_sses++;
-		
-		// beg = std::chrono::steady_clock::now();
 		_spur(pfxt, *node);
-		// end = std::chrono::steady_clock::now();
-		// elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-		// _elapsed_sse += elapsed;
 	}
 	
 	end = std::chrono::steady_clock::now();
@@ -1297,27 +1306,19 @@ void Ink::_spur_incremental(
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	_elapsed_time_sploop += elapsed;
 
-	//beg = std::chrono::steady_clock::now();
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
 	}
 
-	//end = std::chrono::steady_clock::now();
-	//elapsed = 
-	//	std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	//_elapsed_time_tr += elapsed;	
-	
 	// reset edge states
-	// TODO: fix this, all edges should be reset
-	// but now I'm only resetting the ones that 
-	// were matched in _propagate_subtree
 	for (auto e : _eptrs) {
 		if (e != nullptr) {
 			e->modified = false;
 		}
 	}
+
 } 
 
 
@@ -1326,6 +1327,7 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 
+	auto beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
 		// no more paths to generate
@@ -1350,7 +1352,10 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
 		// expand search space
 		_spur(pfxt, *node);
 	}
-
+	auto end = std::chrono::steady_clock::now();
+	auto elapsed = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	_elapsed_time_sploop += elapsed;
 } 
 
 void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
@@ -1413,7 +1418,6 @@ void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) const {
 					continue;
 				}
 			
-
 				auto w = *edge->weights[w_sel];
 				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
 				
@@ -1441,11 +1445,11 @@ void Ink::_recover_path(
 	_recover_path(path, sfxt, pfxt_node->parent, pfxt_node->from);
 
 	auto u = pfxt_node->to;
-	auto u_vptr = _vptrs[u];
+	auto u_ptr = _vptrs[u];
 
 	// detour at the sfxt source
 	if (pfxt_node->from == sfxt.S) {
-		path.emplace_back(*u_vptr, 0.0f);
+		path.emplace_back(*u_ptr, 0.0f);
 	}
 	// detour at non-sfxt-source nodes (internal deviation)
 	else {
@@ -1454,7 +1458,7 @@ void Ink::_recover_path(
 		
 		auto [edge, w_sel] = _decode_edge(*pfxt_node->link);
 		auto d = path.back().dist + *edge->weights[w_sel];
-		path.emplace_back(*u_vptr, d);
+		path.emplace_back(*u_ptr, d);
 	}
 	
 	while (u != v) {
@@ -1466,10 +1470,10 @@ void Ink::_recover_path(
 		auto [edge, w_sel] = _decode_edge(*sfxt.links[u]);	
 		// move to the successor of u
 		u = *sfxt.successors[u];
-		u_vptr = _vptrs[u];
+		u_ptr = _vptrs[u];
 		
 		auto d = path.back().dist + *edge->weights[w_sel];
-		path.emplace_back(*u_vptr, d);
+		path.emplace_back(*u_ptr, d);
 	}
 
 }	
@@ -1558,6 +1562,10 @@ PfxtNode::PfxtNode(
 	parent{p},
 	link{l}
 { 
+}
+
+size_t PfxtNode::num_children() const {
+	return children.size();
 }
 
 Pfxt::Pfxt(const Sfxt& sfxt) : 

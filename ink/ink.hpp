@@ -183,6 +183,8 @@ struct PfxtNode {
 	PfxtNode* parent{nullptr};
 	std::optional<std::pair<size_t, size_t>> link;
 
+	size_t num_children() const;
+
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
 		
@@ -544,6 +546,11 @@ private:
 	// dfs vector (full dfs traversal)
 	// for subtree lookup
 	std::vector<PfxtNode*> _dfs_full;
+
+	// bfs deque
+	std::deque<PfxtNode*> _bfs_old;
+	std::deque<PfxtNodeInfo> _info_q;
+	std::deque<PfxtNode*> _bfs_new;
 
 	// leader matched count 
 	size_t _leader_matched{0};
