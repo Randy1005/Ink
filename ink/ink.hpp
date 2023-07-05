@@ -187,15 +187,25 @@ struct PfxtNode {
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
+
+	// pre-discovered nodes whose costs
+	// are smaller than this node
+	std::deque<PfxtNode*> precomps;
 		
 	// record this node's subtree sequence index
 	// begin and end
 	size_t subtree_beg;
 	size_t subtree_end;
 
-	// cache whether this pfxt node was made a path
-	// in the last report
-	bool is_path{false};
+	// record the range of detour cost
+	// of this subtree
+	float min_detour_cost;
+	float max_detour_cost{std::numeric_limits<float>::min()};
+
+	bool is_in_heap{false};
+	PfxtNode* new_node{nullptr};
+
+	size_t precomp_paths{0};
 };
 
 
@@ -223,7 +233,7 @@ struct Pfxt {
 		size_t t,
 		Edge* e,
 		PfxtNode* p,
-		std::optional<std::pair<size_t, size_t>> l);	
+		std::optional<std::pair<size_t, size_t>> l);
 	
 	PfxtNode* pop();
 	
@@ -241,11 +251,9 @@ struct Pfxt {
 	// nodes (to use as a min heap)
 	std::vector<std::unique_ptr<PfxtNode>> nodes;
 
-	// unused nodes
-	std::vector<std::unique_ptr<PfxtNode>> unused;
-
 	// sources
 	std::vector<PfxtNode*> srcs;
+
 };
 
 
@@ -292,6 +300,8 @@ public:
 	void dump_pfxt_srcs(std::ostream& os) const;
 
 	void dump_profile(std::ostream& os, bool reset = false);
+	
+	void dump_more_paths(std::ostream& os);
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -359,11 +369,16 @@ private:
 	and spur along the path to generate other candidates
 	NOTE: using a global suffix tree
 	*/
-	void _spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes = false);
+	void _spur_incsfxt(
+		size_t K, 
+		PathHeap& heap, 
+		Pfxt& pfxt,
+		bool save_pfxt_nodes = false);
 	void _spur_rebuild(size_t K, PathHeap& heap);
 	void _spur_incremental(
 		size_t K, 
-		PathHeap& heap, 
+		PathHeap& heap,
+		Pfxt& pfxt,
 		bool save_pfxt_nodes = false,
 		bool use_leaders = false);
 
@@ -371,14 +386,14 @@ private:
 	@brief Spur from the path. Scan the current critical path
 	and spur along the path to generate other candidates
 	*/
-	void _spur(Point& endpt, size_t K, PathHeap& heap) const;
+	void _spur(Point& endpt, size_t K, PathHeap& heap);
 
 
 	/**
 	@brief Spur along the path to generate more prefix nodes, 
 	given a prefix node, until we reach the suffix tree's super target
 	*/
-	void _spur(Pfxt& pfxt, PfxtNode& pfx) const;
+	void _spur(Pfxt& pfxt, PfxtNode& pfx);
 	
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
@@ -392,7 +407,7 @@ private:
 	*/
 	void _identify_leaders(
 		PfxtNode* curr,
-		std::vector<PfxtNode*>& dfs,
+		std::vector<PfxtNode*>& dfs_full,
 		std::vector<PfxtNode*>& dfs_marked,
 		size_t& order);
 
@@ -404,11 +419,14 @@ private:
 	*/
 	void _propagate_subtree(
 		PfxtNode* leader, 
-		PfxtNode* node, 
-		Pfxt& pfxt, 
-		PathHeap& heap,
-		size_t K);
+		PfxtNode* node,
+		Pfxt& pfxt);
 
+	void _dfs_subtree(
+		PfxtNode* parent,
+		PfxtNode* node,
+		PfxtNode* top,
+		Pfxt& pfxt);
 
 	/**
 	@brief Recover the complete path from a given prefix tree node
@@ -477,6 +495,9 @@ private:
 		std::vector<bool>& visited);
 
 
+	std::vector<Path> _extract_paths(std::vector<std::unique_ptr<Path>>& paths);
+
+
 	std::vector<Point> _endpoints;
 
 	// unordered map: name to vertex object
@@ -539,7 +560,7 @@ private:
 	// dfs marked vector
 	// to record the nodes that: 
 	// 1. became sfxt nodes 
-	// or 
+	//				or 
 	// 2. updated but remained pfxt nodes
 	std::vector<PfxtNode*> _dfs_marked;
 
@@ -549,8 +570,14 @@ private:
 
 	// bfs deque
 	std::deque<PfxtNode*> _bfs_old;
-	std::deque<PfxtNodeInfo> _info_q;
 	std::deque<PfxtNode*> _bfs_new;
+
+	// paths (unsorted, should sort when we finish exploring paths)
+	std::vector<std::unique_ptr<Path>> _all_paths;
+	std::vector<std::unique_ptr<Path>> _more_paths;
+
+	// max cost in heap
+	float _max_cost{std::numeric_limits<float>::min()};
 
 	// leader matched count 
 	size_t _leader_matched{0};
@@ -560,6 +587,7 @@ private:
 
 	// elapsed time: whole spur function
 	size_t _elapsed_time_spur{0};
+	size_t _elapsed_time_spur2{0};
 
 	// elapsed time: identify leaders
 	size_t _elapsed_time_idl{0};
@@ -570,11 +598,17 @@ private:
 	// elapsed time: transfer leftover nodes
 	size_t _elapsed_time_tr{0};
 
+	size_t _elapsed_final_path_sort{0};
+	size_t _elapsed_init{0};
 
 	size_t _elapsed_prop{0};
 	size_t _elapsed_sse{0};
 	size_t _elapsed_pop{0};
 	size_t _total_nodes{0};
+	size_t _skip_heaps{0};
+	size_t _max_precomp_nodes{0};
+	size_t _max_nodes{0};
+	size_t _sort_cnt{0};
 };
 
 /**

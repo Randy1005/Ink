@@ -18,6 +18,9 @@ add_executable(tv80_timing ${INK_EXAMPLE_DIR}/tv80/tv80.cpp)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c7552)
 add_executable(c7552_timing ${INK_EXAMPLE_DIR}/c7552/c7552.cpp)
 
+# example: c17.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c17)
+add_executable(c17_timing ${INK_EXAMPLE_DIR}/c17/c17.cpp)
 
 list(APPEND INK_EXAMPLES
   simple_timing
@@ -25,6 +28,7 @@ list(APPEND INK_EXAMPLES
   vga_lcd_timing
   tv80_timing
   c7552_timing
+  c17_timing
 )
 
 find_package(Threads REQUIRED)

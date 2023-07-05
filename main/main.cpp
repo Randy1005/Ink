@@ -70,8 +70,6 @@ int main(int argc, char* argv[]) {
 		for (auto& p : paths) {
 			ofs << p.weight << '\n';
 		}
-
-	
 	}
 	else if (mode == 3) {
 		std::ofstream ofs("pfxt_srcs.out");

@@ -1,6 +1,7 @@
 #include "ink.hpp"
 
 namespace ink {
+
 // ------------------------
 // Vertex Implementations
 // ------------------------
@@ -344,17 +345,27 @@ std::vector<Path> Ink::report_incsfxt(size_t K, bool save_pfxt_nodes) {
 	}
 
 	PathHeap heap;
+	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
+
 	auto beg = std::chrono::steady_clock::now();
-	_spur_incsfxt(K, heap, save_pfxt_nodes);	
+	_spur_incsfxt(K, heap, pfxt, save_pfxt_nodes);	
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_spur += elapsed;
+	_elapsed_time_spur = elapsed;
 	
 	// report complete, clear the update list
 	_clear_update_list();		
-
-	return heap.extract();
+	
+	beg = std::chrono::steady_clock::now();
+	auto paths = heap.extract();
+	end = std::chrono::steady_clock::now();
+	elapsed = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	_elapsed_final_path_sort += elapsed;
+	return paths;
 }
 
 std::vector<Path> Ink::report_rebuild(size_t K) {
@@ -384,8 +395,8 @@ std::vector<Path> Ink::report_rebuild(size_t K) {
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_spur += elapsed;
-
+	_elapsed_time_spur = elapsed;
+	
 	// report complete, clear the update list
 	_clear_update_list();		
 
@@ -417,18 +428,26 @@ std::vector<Path> Ink::report_incremental(
 	}
 
 	PathHeap heap;
+	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
 
 	auto beg = std::chrono::steady_clock::now();
-	_spur_incremental(K, heap, save_pfxt_nodes, use_leaders);	
+	_spur_incremental(K, heap, pfxt, save_pfxt_nodes, use_leaders);	
 	auto end = std::chrono::steady_clock::now();
-	auto elapsed = 
+	_elapsed_time_spur = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_spur += elapsed;
 
 	// report complete, clear the update list
 	_clear_update_list();		
 
-	return heap.extract();
+
+	beg = std::chrono::steady_clock::now();
+	auto paths = _extract_paths(_all_paths);
+	end = std::chrono::steady_clock::now();
+	_elapsed_final_path_sort = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	return paths;
 }
 
 
@@ -527,40 +546,58 @@ void Ink::dump_profile(std::ostream& os, bool reset) {
 	os << "======== Profile ========\n";
 	os << "full spur function: " << _elapsed_time_spur << " ns ("
 		 << _elapsed_time_spur / 1000000000.0f << " sec)\n";
-	os << "identify leader: " << _elapsed_time_idl << " ns ("
-		 << _elapsed_time_idl / 1000000000.0f << " sec)\n";
-	os << "spur loop: " << _elapsed_time_sploop << " ns ("
-		 << _elapsed_time_sploop / 1000000000.0f << " sec)\n";
-	os << "propagate subtree: " << _elapsed_prop << " ns ("
-		 << _elapsed_prop / 1000000000.0f << " sec)\n";
-	
-	os << "pop time: " << _elapsed_pop << " ns ("
-		 << _elapsed_pop / 1000000000.0f << " sec)\n";
+	os << "full spur function 2: " << _elapsed_time_spur2 << " ns ("
+		 << _elapsed_time_spur2 / 1000000000.0f << " sec)\n";
+	//os << "identify leader: " << _elapsed_time_idl << " ns ("
+	//	 << _elapsed_time_idl / 1000000000.0f << " sec)\n";
+	//os << "spur loop: " << _elapsed_time_sploop << " ns ("
+	//	 << _elapsed_time_sploop / 1000000000.0f << " sec)\n";
+	//os << "final path sort: " << _elapsed_final_path_sort << " ns ("
+	//	 << _elapsed_final_path_sort / 1000000000.0f << " sec)\n";
+	//os << "sfxt/pfxt init: " << _elapsed_init << " ns ("
+	//	 << _elapsed_init / 1000000000.0f << " sec)\n";
+	//
+	//os << "pop time: " << _elapsed_pop << " ns ("
+	//	 << _elapsed_pop / 1000000000.0f << " sec)\n";
 
-	os << "search space expansion time: " << _elapsed_sse << " ns ("
-		 << _elapsed_sse / 1000000000.0f << " sec)\n";
+	//os << "search space expansion time: " << _elapsed_sse << " ns ("
+	//	 << _elapsed_sse / 1000000000.0f << " sec)\n";
 	os << "pfxt node transfer: " << _elapsed_time_tr << " ns ("
 		 << _elapsed_time_tr / 1000000000.0f << " sec)\n";
-	os << "leader matched: " << _leader_matched << '\n';
 	os << "search space expansions: " << _sses << '\n';
-	os << "total pfxt nodes: " << _total_nodes << '\n';
-	
+	os << "max nodes: " << _max_nodes << '\n';
+	os << "sort cnt: " << _sort_cnt << '\n';
+	os << "into precomp: " << _skip_heaps << '\n';
 	if (reset) {
 		_elapsed_time_spur = 0;
+		_elapsed_time_spur2 = 0;
 		_elapsed_time_sploop = 0;
 		_elapsed_time_idl = 0;
 		_elapsed_prop = 0;
 		_elapsed_time_tr = 0;
+		_elapsed_final_path_sort = 0;
+		_elapsed_init = 0;
 		_leader_matched = 0;
 		_elapsed_sse = 0;
 		_sses = 0;
 		_elapsed_pop = 0;
-		_total_nodes = 0;
+		_max_precomp_nodes = 0;
+		_max_nodes = 0;
+		_sort_cnt = 0;
+		_skip_heaps = 0;
 	}
-	os << "=========================\n";
+	os << "=========================\n\n";
 }
 
 
+void Ink::dump_more_paths(std::ostream& os) {
+	auto paths = _extract_paths(_more_paths);
+
+	for (auto& p : paths) {
+		os << p.weight << '\n';
+	}
+
+}
 
 void Ink::_read_ops(std::istream& is, std::ostream& os) {
 	std::string buf;
@@ -945,6 +982,7 @@ void Ink::_identify_leaders(
 	std::vector<PfxtNode*>& dfs_full,
 	std::vector<PfxtNode*>& dfs_marked,
 	size_t& order) {
+
 	// record full dfs traversal
 	dfs_full.emplace_back(curr);
 
@@ -973,9 +1011,9 @@ void Ink::_identify_leaders(
 
 	// traverse each children
 	for (auto c : curr->children) {
-		assert(c != nullptr);
 		_identify_leaders(c, dfs_full, dfs_marked, order);
 	}
+
 
 	if (!dfs_marked.empty()) {
 		auto last = dfs_marked.back();
@@ -1001,87 +1039,15 @@ void Ink::_identify_leaders(
 
 void Ink::_propagate_subtree(
 	PfxtNode* leader, 
-	PfxtNode* node, 
-	Pfxt& pfxt, 
-	PathHeap& heap,
-	size_t K) {
+	PfxtNode* node,
+	Pfxt& pfxt) {
 
-
-	//_info_stk = {};
-	//_info_stk.emplace(node, leader->children.size());
-
-	//// traverse the flattened subtree of this leader
-	//for (size_t i = leader->subtree_beg + 1; i < leader->subtree_end; i++) {
-	//	auto s = _dfs_full[i];
-	//
-	//	while (_info_stk.top().children_cnt == 0) {
-	//		_info_stk.pop();
-	//	}
-	//
-	//	auto& top = _info_stk.top();
-	//	top.children_cnt--;
-	//	
-	//	auto parent = top.node;
-
-	//	// calculate detour cost
-	//	auto [eptr, w_sel] = _decode_edge(*s->link);
-	//	auto v = s->to;
-	//	auto u = s->from;
-	//	auto w = *eptr->weights[w_sel];
-	//	auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
-
-	//	// calculate all the information to construct a pfxt node
-	//	auto cost = detour_cost + parent->cost;
-	//	auto f = s->from;
-	//	auto t = s->to;
-	//	auto e = s->edge;
-	//	auto l = s->link;
-
-	//	// using the updated info, push a new pfxt node
-	//	// auto p = pfxt.push(cost, f, t, e, parent, l);
-	//	
-	//	// NOTE: idea: can I directly recover path and push to the path heap?
-	//	// if I know:
-	//	// 1. num of paths have not exceeded previous report
-	//	// 2. pfxt node is marked as path
-	//	auto& sfxt = *_global_sfxt;
-	//	auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
-	//	auto p_obs = p.get();
-	//
-	//	
-	//	if (parent) {
-	//		parent->children.emplace_back(p_obs);
-	//	}
-
-	//	if (s->is_path) {
-	//		pfxt.paths.push_back(std::move(p));
-	//	
-	//		// recover the complete path
-	//		auto path = std::make_unique<Path>(0.0f, nullptr);
-	//		_recover_path(*path, sfxt, p_obs, sfxt.T);
-
-	//		path->weight = path->back().dist;
-	//		if (path->size() > 1) {
-	//			heap.push(std::move(path));
-	//			heap.fit(K);
-	//		}
-	//	}
-	//	else {
-	//		pfxt.unused.push_back(std::move(p));
-	//	}
-
-	//	if (s->children.size() != 0) {
-	//		_info_stk.emplace(p_obs, s->children.size());
-	//	}
-
-	//}
-	
-
+	// NOTE: only push 1 level
 	auto& sfxt = *_global_sfxt;
+	auto t = pfxt.top();
 	for (auto c : leader->children) {
-
 		auto [eptr, w_sel] = _decode_edge(*c->link);
-
+		
 		// since c has a leader parent
 		// c itself is also a leader
 		_leaders[eptr->id][w_sel] = c;
@@ -1090,24 +1056,48 @@ void Ink::_propagate_subtree(
 		auto v = c->to;
 		auto u = c->from;
 		auto w = *eptr->weights[w_sel];
-		auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u]; 
+		auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u];
 		
-		// calculate all the information to construct a pfxt node
 		auto cost = detour_cost + node->cost;
-		auto f = c->from;
-		auto t = c->to;
 		auto e = c->edge;
 		auto l = c->link;
-	
-		// using the updated info, push a new pfxt node
-		pfxt.push(cost, f, t, e, node, l);
+
+		if (t && cost < t->cost) {
+			auto n = std::make_unique<PfxtNode>(cost, u, v, e, node, l);
+			auto n_obs = n.get();
+			if (node) {
+				node->children.emplace_back(n_obs);
+			}
+			
+			// store in top's pre-computed list
+			// it will need to be examined before top
+			t->precomps.emplace_back(n_obs);
+
+			// accumulate how many paths should be recovered 
+			// before moving onto top
+			t->precomp_paths += (c->subtree_end - c->subtree_beg);
+			
+			pfxt.paths.push_back(std::move(n));
+		}
+		else {
+			pfxt.push(cost, u, v, e, node, l);	
+		}
 	}
 
+	
+
+
 	//auto& sfxt = *_global_sfxt;
+	//auto top = pfxt.top();
+
 	//_bfs_old.clear();	
 	//_bfs_old.push_back(leader);
 	//_bfs_new.clear();
 	//_bfs_new.emplace_back(node);
+	//
+	//// perform level-by-level traversal
+	//// of this subtree
+	//bool enough_paths{false};
 	//while (!_bfs_old.empty()) {
 	//	auto s = _bfs_old.front();
 	//	_bfs_old.pop_front();
@@ -1115,11 +1105,14 @@ void Ink::_propagate_subtree(
 	//	_bfs_new.pop_front();
 
 	//	for (auto c : s->children) {
-	//		// calculate detour cost
+	//		
 	//		auto [eptr, w_sel] = _decode_edge(*c->link);
+	//		_leaders[eptr->id][w_sel] = c;
+
 	//		auto v = c->to;
 	//		auto u = c->from;
 	//		auto w = *eptr->weights[w_sel];
+	//		// calculate detour cost
 	//		auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u]; 
 
 	//		// calculate all the information to construct a pfxt node
@@ -1129,53 +1122,90 @@ void Ink::_propagate_subtree(
 	//		auto e = c->edge;
 	//		auto l = c->link;
 
-	//		auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
-	//		auto p_obs = p.get();
 
-	//		if (parent) {
-	//			parent->children.emplace_back(p_obs);
-	//		}
-
-	//		if (c->is_path) {
-	//			pfxt.paths.push_back(std::move(p));
+	//		PfxtNode* p_obs{nullptr};
 	//		
-	//			// recover the complete path
+	//		//if (top == nullptr || cost > top->cost) {
+	//		//	// using the updated info, push a new pfxt node
+	//		//	p_obs = pfxt.push(cost, f, t, e, parent, l);
+	//		//}
+	//		if (top != nullptr || cost < top->cost) {
+	//			auto p = std::make_unique<PfxtNode>(cost, f, t, e, parent, l);
+	//			p_obs = p.get();
+	//			
+	//			if (parent) {
+	//				parent->children.emplace_back(p_obs);
+	//			}
+
 	//			auto path = std::make_unique<Path>(0.0f, nullptr);
 	//			_recover_path(*path, sfxt, p_obs, sfxt.T);
-
 	//			path->weight = path->back().dist;
-	//			if (path->size() > 1) {
-	//				heap.push(std::move(path));
-	//				heap.fit(K);
-	//			}
+	//			pfxt.paths.push_back(std::move(p));
+	//		
+	//			_all_paths.push_back(std::move(path));
 
-	//			if (heap.size() >= K) {
-	//				break;
+	//			if (_all_paths.size() >= K) {
+	//				enough_paths = true;
 	//			}
 	//		}
-	//		else {
-	//			pfxt.unused.push_back(std::move(p));
-	//		}	
 
+	//		if (enough_paths) {
+	//			break;
+	//		}
+
+
+	//
 	//		_bfs_old.push_back(c);
 	//		_bfs_new.push_back(p_obs);
 	//	}
 
 	//}
 
+}
+
+void Ink::_dfs_subtree(
+	PfxtNode* parent, 
+	PfxtNode* node,
+	PfxtNode* top,
+	Pfxt& pfxt) {
+	
+	auto& sfxt = *_global_sfxt;
+	auto [eptr, w_sel] = _decode_edge(*node->link);
+		
+	// detour cost
+	auto v = node->to;
+	auto u = node->from;
+	auto w = *eptr->weights[w_sel];
+	auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u];
+	
+	auto cost = detour_cost + parent->cost;
+	auto e = node->edge;
+	auto l = node->link;
+
+	if (top == nullptr || 
+			cost >= top->cost ||
+			node->is_in_heap) {
+		return;
+	}
+	
+	if (!node->is_in_heap) {
+		node->new_node = pfxt.push(cost, u, v, e, parent, l);
+		node->is_in_heap = true;
+	}
+
+	for (auto c : node->children) {
+		_dfs_subtree(node->new_node, c, top, pfxt);
+	}
 
 }
 
 
-void Ink::_spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes) {
-	_sfxt_cache();
-	auto& sfxt = *_global_sfxt;
-	auto pfxt = _pfxt_cache(sfxt);
-
+void Ink::_spur_incsfxt(size_t K, PathHeap& heap, Pfxt& pfxt, bool save_pfxt_nodes) {
 	auto beg = std::chrono::steady_clock::now();
+	auto& sfxt = *_global_sfxt;
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
-		
+	
 		// no more paths to generate
 		if (node == nullptr) {
 			break;
@@ -1200,29 +1230,26 @@ void Ink::_spur_incsfxt(size_t K, PathHeap& heap, bool save_pfxt_nodes) {
 		_spur(pfxt, *node);
 	}
 
-	auto end = std::chrono::steady_clock::now();
-	auto elapsed = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_sploop += elapsed;
 
-	
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = pfxt.srcs;
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
-	}
+	}	
+	
+	auto end = std::chrono::steady_clock::now();
+	_elapsed_time_spur2 = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 }
 
 void Ink::_spur_incremental(
 	size_t K, 
-	PathHeap& heap, 
+	PathHeap& heap,
+	Pfxt& pfxt,
 	bool save_pfxt_nodes,
 	bool use_leaders) {
-	_sfxt_cache();
-	auto& sfxt = *_global_sfxt;
-	auto pfxt = _pfxt_cache(sfxt);
-
 	auto beg = std::chrono::steady_clock::now();
+	auto& sfxt = *_global_sfxt;
 	// TODO : incremental euler tour?
 	if (use_leaders) {
 		// resize leader storage size to 
@@ -1235,63 +1262,70 @@ void Ink::_spur_incremental(
 		_dfs_marked.clear();
 		_dfs_full.clear();
 		for (auto src : _pfxt_srcs) {
-			// NOTE: each pfxt src's children should by default 
-			// be marked as modified? this way they 
+			// NOTE: each pfxt src's children should 
+			// be marked as modified, this way they 
 			// by default lead every node below them
 			for (auto c : src->children) {
 				auto [eptr, w_sel] = _decode_edge(*c->link);
 				if (eptr != nullptr && !_belongs_to_sfxt[eptr->id][w_sel]) {
-					eptr->modified = true;	
+					eptr->modified = true;
 				}
 				
 				_identify_leaders(c, _dfs_full, _dfs_marked, order);
 			}
 		}
 	}
-	auto end = std::chrono::steady_clock::now();
-	auto elapsed = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_idl += elapsed;
 	
-	beg = std::chrono::steady_clock::now();
 	while (!pfxt.num_nodes() == 0) {
-		auto node = pfxt.pop();
-		
+		PfxtNode* node{nullptr};
+		auto top = pfxt.top();
+		if (top->precomps.size() != 0) {
+			_skip_heaps++;
+			auto paths_left = K - _all_paths.size();
+			if (top->precomp_paths > paths_left) {
+				_sort_cnt++;
+				std::sort(top->precomps.begin(), top->precomps.end(), 
+					[](auto a, auto b) {
+						return a->cost < b->cost; 
+					}
+				);
+			}
+
+			node = top->precomps.front();
+			top->precomps.pop_front();
+			top->precomp_paths--;
+		}
+		else {
+			node = pfxt.pop();
+		}
+
+
 		// no more paths to generate
 		if (node == nullptr) {
 			break;
-		}	
+		}
 
 		// recover the complete path
 		auto path = std::make_unique<Path>(0.0f, nullptr);
 		_recover_path(*path, sfxt, node, sfxt.T);
-
 		path->weight = path->back().dist;
-		if (path->size() > 1) {
-			heap.push(std::move(path));
-			heap.fit(K);
-		}
-
-		if (heap.size() >= K) {
+		_all_paths.push_back(std::move(path));
+		if (_all_paths.size() >= K) {
 			break;
 		}
-
+	
 		// get the edge pointer and weight selection of this node
 		if (node->link && use_leaders) {
 			auto [eptr, w_sel] = _decode_edge(*node->link);
 			if (_leaders[eptr->id][w_sel]) {
-				_leader_matched++;
 				// we recorded a leader from previous report
 				// recover its children prefix tree nodes
 				auto l = _leaders[eptr->id][w_sel];
-				_propagate_subtree(l, node, pfxt, heap, K);
+				_propagate_subtree(l, node, pfxt);
 			}
 		}
 
-
 		if (node->num_children() != 0) {
-			// don't call spur on this node
-			// its children were already found
 			continue;
 		}
 
@@ -1301,24 +1335,23 @@ void Ink::_spur_incremental(
 		_spur(pfxt, *node);
 	}
 	
-	end = std::chrono::steady_clock::now();
-	elapsed = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_sploop += elapsed;
-
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
 	}
 
-	// reset edge states
-	for (auto e : _eptrs) {
-		if (e != nullptr) {
-			e->modified = false;
-		}
-	}
-
+	// TODO: will need to reset somehow
+	// reset edge modified flag
+	//for (auto e : _eptrs) {
+	//	if (e) {
+	//		e->modified = false;
+	//	}
+	//}
+	
+	auto end = std::chrono::steady_clock::now();
+	_elapsed_time_spur2 = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 } 
 
 
@@ -1358,7 +1391,7 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
 	_elapsed_time_sploop += elapsed;
 } 
 
-void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
+void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) {
 	auto sfxt = _sfxt_cache(endpt);
 	auto pfxt = _pfxt_cache(sfxt);
 
@@ -1390,7 +1423,7 @@ void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) const {
 
 } 
 
-void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) const {
+void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) {
 	auto u = pfx.to;
 
 	while (u != pfxt.sfxt.T) {
@@ -1504,6 +1537,29 @@ void Ink::_dfs(
 	tpg.push_front(v);
 }
 
+std::vector<Path> Ink::_extract_paths(
+	std::vector<std::unique_ptr<Path>>& paths) {
+	std::sort(
+		paths.begin(), 
+		paths.end(), 
+		[](std::unique_ptr<Path>& a, std::unique_ptr<Path>& b) {
+			return a->weight < b->weight;	
+		}
+	);
+
+	std::vector<Path> P;
+	P.reserve(paths.size());
+
+	std::transform(
+		paths.begin(), paths.end(), std::back_inserter(P), 
+		[](auto& ptr) {
+			return std::move(*ptr);		
+		}
+	);
+
+	paths.clear();
+	return P;
+}
 
 
 // ------------------------
@@ -1589,20 +1645,19 @@ PfxtNode* Pfxt::push(
 	PfxtNode* p,
 	std::optional<std::pair<size_t, size_t>> link) {
 	nodes.emplace_back(std::make_unique<PfxtNode>(c, f, t, e, p, link));
-	
+
 	// cache the pointer we just pushed
-	auto ptr = nodes.back().get();
+	auto obs = nodes.back().get();
 
 	// store a raw pointer to this node as parent's children
 	if (p != nullptr) {
-		p->children.emplace_back(ptr);
+		p->children.emplace_back(obs);
 	}
 	// heapify nodes
 	std::push_heap(nodes.begin(), nodes.end(), comp);
 	
-	return ptr;
+	return obs;
 }
-
 
 
 
@@ -1618,9 +1673,6 @@ PfxtNode* Pfxt::pop() {
 	// now it's located in the back
 	paths.push_back(std::move(nodes.back()));
 	nodes.pop_back();
-
-	// set is_path to true
-	paths.back()->is_path = true;
 
 	// and return an observer poiner to this node object
 	return paths.back().get();
@@ -1759,7 +1811,6 @@ std::vector<Path> PathHeap::extract() {
 
 	_paths.clear();
 	return P;
-
 }
 
 
