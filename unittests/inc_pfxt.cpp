@@ -173,4 +173,61 @@ TEST_CASE("Update Edges 3" * doctest::timeout(300)) {
 	REQUIRE(float_equal(paths0[4].weight, paths3[4].weight));	
 }
 
+TEST_CASE("Update Edges 2 (only push node costs)" * doctest::timeout(300)) {
+	ink::Ink ink;
+	ink.insert_edge("A", "B", -1);
+	ink.insert_edge("A", "C", 3);
+	ink.insert_edge("C", "D", 1);
+	ink.insert_edge("C", "E", 2);
+	ink.insert_edge("D", "B", 3);
+
+	ink.insert_edge("B", "F", 1);
+	ink.insert_edge("B", "G", 2);
+	ink.insert_edge("F", "H", -4);
+	ink.insert_edge("F", "I", 8);
+	ink.insert_edge("I", "L", 4);
+	ink.insert_edge("I", "M", 11);
+
+	ink.insert_edge("G", "J", 5);
+	ink.insert_edge("G", "K", 7);
+
+	// disable recover paths
+	ink.report_incsfxt(4, true, false);
+	auto costs = ink.get_path_costs();
+	REQUIRE(costs.size() == 4);
+
+	// modify A->C's weight to 10, A->C remains a prefix tree edge
+	ink.insert_edge("A", "C", 10);
+	ink.report_incremental(8, true, true, false);
+	costs = ink.get_path_costs();
+
+	REQUIRE(costs.size() == 8);
+	//REQUIRE(float_equal(costs[0], -4));
+	//REQUIRE(float_equal(costs[1], 10));
+	//REQUIRE(float_equal(costs[2], 12));
+	//REQUIRE(float_equal(costs[3], 15));
+	//REQUIRE(float_equal(costs[4], 16));
+	//REQUIRE(float_equal(costs[5], 16));
+	//REQUIRE(float_equal(costs[6], 25));
+	//REQUIRE(float_equal(costs[7], 31));
+
+
+	
+	// modify A->B's weight to 5, A->C becomes a suffix tree edge
+	ink.insert_edge("A", "B", 5);
+	//paths = ink.report_incremental(20, true, true);
+	//REQUIRE(paths.size() == 11);
+	//REQUIRE(float_equal(paths[0].weight, 1));
+	//REQUIRE(float_equal(paths[1].weight, 2));
+	//REQUIRE(float_equal(paths[2].weight, 2));
+	//REQUIRE(float_equal(paths[3].weight, 11));
+	//REQUIRE(float_equal(paths[4].weight, 12));
+	//REQUIRE(float_equal(paths[5].weight, 13));
+	//REQUIRE(float_equal(paths[6].weight, 14));
+	//REQUIRE(float_equal(paths[7].weight, 17));
+	//REQUIRE(float_equal(paths[8].weight, 18));
+	//REQUIRE(float_equal(paths[9].weight, 24));
+	//REQUIRE(float_equal(paths[10].weight, 25));
+}
+
 

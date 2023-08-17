@@ -54,7 +54,7 @@ TEST_CASE("Simplified s27 Benchmark" * doctest::timeout(300)) {
 	REQUIRE(ink.num_verts() == 31);
 
 
-	auto paths = ink.report(10);
+	auto paths = ink.report_incsfxt(10);
 	
 	REQUIRE(paths.size() == 10);
 
@@ -594,7 +594,7 @@ TEST_CASE("Simplified s27 Benchmark w/ Incremental Update" * doctest::timeout(30
 	REQUIRE(ink.num_verts() == 31);
 
 
-	auto paths = ink.report(10);
+	auto paths = ink.report_incsfxt(10);
 	
 	REQUIRE(paths.size() == 10);
 
@@ -1145,7 +1145,7 @@ TEST_CASE("Simplified s27 Benchmark w/ Incremental Update" * doctest::timeout(30
 	REQUIRE(!e2.weights[7]);
 
 	// report paths again
-	paths = ink.report(8);
+	paths = ink.report_incsfxt(8);
 	REQUIRE(paths.size() == 8);
 
 	// 1st path
@@ -1492,7 +1492,7 @@ TEST_CASE("Simplified s27 Benchmark w/ Incremental Update(2)" * doctest::timeout
 	REQUIRE(ink.num_verts() == 29);
 
 
-	auto paths = ink.report(8);
+	auto paths = ink.report_incsfxt(8);
 	
 	REQUIRE(paths.size() == 8);
 

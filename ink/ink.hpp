@@ -17,18 +17,6 @@ struct Point;
 struct Path;
 class PathHeap;
 
-
-struct PfxtNodeInfo {
-	PfxtNodeInfo(PfxtNode* node, size_t children_cnt) :
-		node{node},
-		children_cnt{children_cnt}
-	{}
-
-	PfxtNode* node;
-	size_t children_cnt;
-};
-
-
 /**
 @brief Vertex
 */
@@ -114,6 +102,9 @@ struct Edge {
 	// records if an edge's weights had been modified
 	bool modified{false};
 
+	// records which pfxt nodes depend on this edge
+	std::vector<PfxtNode*> dep_nodes;
+
 };
 
 
@@ -187,25 +178,18 @@ struct PfxtNode {
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
-
-	// pre-discovered nodes whose costs
-	// are smaller than this node
-	std::deque<PfxtNode*> precomps;
-		
+	
 	// record this node's subtree sequence index
 	// begin and end
 	size_t subtree_beg;
 	size_t subtree_end;
 
-	// record the range of detour cost
-	// of this subtree
-	float min_detour_cost;
-	float max_detour_cost{std::numeric_limits<float>::min()};
+	// record which level this pfxt node is located
+	// in the prefix tree
+	size_t level;
 
-	bool is_in_heap{false};
-	PfxtNode* new_node{nullptr};
-
-	size_t precomp_paths{0};
+	// record if visited by a leader's upward traversal
+	bool visited_by_leader{false};
 };
 
 
@@ -268,7 +252,7 @@ public:
 		const std::string& out);
 
 	Vert& insert_vertex(const std::string& name);
-	
+
 	void remove_vertex(const std::string& name);
 
 	Edge& insert_edge(
@@ -283,25 +267,51 @@ public:
 		const std::optional<float> w6 = std::nullopt,
 		const std::optional<float> w7 = std::nullopt);
 
+	Edge& get_edge(const std::string& from, const std::string& to);
+
 	void remove_edge(const std::string& from, const std::string& to);
 
 	std::vector<Path> report(size_t K);
 
-	std::vector<Path> report_incsfxt(size_t K, bool save_pfxt_nodes = false);
+	std::vector<Path> report_incsfxt(
+		size_t K, 
+		bool save_pfxt_nodes = false,
+		bool recover_paths = true);
 	std::vector<Path> report_rebuild(size_t K);
 	std::vector<Path> report_incremental(
 		size_t K, 
 		bool save_pfxt_nodes = false,
-		bool use_leaders = false);
+		bool use_leaders = false,
+		bool recover_paths = true);
 	
 
 	void dump(std::ostream& os) const;
 
 	void dump_pfxt_srcs(std::ostream& os) const;
 
+	void dump_pfxt_nodes(std::ostream& os) const;
+
 	void dump_profile(std::ostream& os, bool reset = false);
-	
-	void dump_more_paths(std::ostream& os);
+
+	/**
+	@brief randomly pick a vertex and modify its fanin / fanouts
+	(for the purpose of measuring difference between queries)
+	*/
+	void modify_random_vertex();
+
+	/**
+	@brief outputs the percentage of difference between 2 path weight vectors
+	*/
+	float vec_diff(
+		const std::vector<Path>& ps1, 
+		const std::vector<Path>& ps2,
+		std::vector<float>& diff);
+
+	/**
+	@brief get the path costs
+	*/
+	std::vector<float> get_path_costs();
+
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -373,14 +383,17 @@ private:
 		size_t K, 
 		PathHeap& heap, 
 		Pfxt& pfxt,
-		bool save_pfxt_nodes = false);
+		bool save_pfxt_nodes = false,
+		bool recover_paths = true);
+
 	void _spur_rebuild(size_t K, PathHeap& heap);
+	
 	void _spur_incremental(
 		size_t K, 
-		PathHeap& heap,
 		Pfxt& pfxt,
 		bool save_pfxt_nodes = false,
-		bool use_leaders = false);
+		bool use_leaders = false,
+		bool recover_paths = true);
 
 	/**
 	@brief Spur from the path. Scan the current critical path
@@ -412,21 +425,22 @@ private:
 		size_t& order);
 
 	/**
+	@brief apply upwared prefix tree traversal to each modified node
+	and identifies the subtrees that are not affected
+	*/
+	void _identify_leaders_upward();
+
+	/**
 	@brief propagate costs from the leader downwards to the subtree it leads
 	@param leader the subtree root from the old pfxt
 	@param node the pfxt node in the new pfxt
-	@param the new pfxt we're currently expanding on
+	@param the new pfxt we're currently expanding
 	*/
 	void _propagate_subtree(
 		PfxtNode* leader, 
 		PfxtNode* node,
 		Pfxt& pfxt);
 
-	void _dfs_subtree(
-		PfxtNode* parent,
-		PfxtNode* node,
-		PfxtNode* top,
-		Pfxt& pfxt);
 
 	/**
 	@brief Recover the complete path from a given prefix tree node
@@ -497,7 +511,7 @@ private:
 
 	std::vector<Path> _extract_paths(std::vector<std::unique_ptr<Path>>& paths);
 
-
+	
 	std::vector<Point> _endpoints;
 
 	// unordered map: name to vertex object
@@ -537,13 +551,10 @@ private:
 
 	// prefix nodes from the last report iteration
 	// (NOT heapified)
-	// NOTE: mimic Pfxt class instead
-	// use 2 separate vectors to transfer node ownerships
-	// reduce the overhead of std::move
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_paths;
-
 	std::vector<PfxtNode*> _pfxt_srcs;
+
 
 	// leader prefix nodes
 	// NOTE: we only store a raw pointer, an OBSERVER
@@ -552,7 +563,8 @@ private:
 	// observer's information
 	std::vector<std::array<PfxtNode*, NUM_WEIGHTS>> _leaders;
 
-	std::stack<PfxtNodeInfo> _info_stk;
+	// leader nodes (not lookup table)
+	std::vector<PfxtNode*> _leader_nodes;
 
 	// records if a link (edge, w_sel pair) became the sfxt's link
 	std::vector<std::array<bool, NUM_WEIGHTS>> _belongs_to_sfxt;
@@ -568,22 +580,27 @@ private:
 	// for subtree lookup
 	std::vector<PfxtNode*> _dfs_full;
 
-	// bfs deque
-	std::deque<PfxtNode*> _bfs_old;
-	std::deque<PfxtNode*> _bfs_new;
-
 	// paths (unsorted, should sort when we finish exploring paths)
 	std::vector<std::unique_ptr<Path>> _all_paths;
-	std::vector<std::unique_ptr<Path>> _more_paths;
 
-	// max cost in heap
-	float _max_cost{std::numeric_limits<float>::min()};
+	// pfxt nodes affected
+	std::vector<PfxtNode*> _affected_pfxtnodes;
 
-	// leader matched count 
-	size_t _leader_matched{0};
+	// num of affected nodes
+	size_t _num_affected_nodes{0};
+	
+	// random device (for picking random vertices to updated)
+	std::random_device _rdev;
+	std::mt19937 _rng{_rdev()};
+
+	// containers for all path costs
+	std::vector<float> _all_path_costs;
 	
 	// search space expansion count
 	size_t _sses{0};
+
+	// subtree propagations
+	size_t _props{0};
 
 	// elapsed time: whole spur function
 	size_t _elapsed_time_spur{0};
@@ -609,6 +626,7 @@ private:
 	size_t _max_precomp_nodes{0};
 	size_t _max_nodes{0};
 	size_t _sort_cnt{0};
+	size_t _leader_cnt;
 };
 
 /**
