@@ -429,6 +429,8 @@ std::vector<Path> Ink::report_incremental(
 	_sfxt_cache();
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
+	pfxt.nodes = std::move(_pfxt_nodes);
+	pfxt.paths = std::move(_pfxt_paths);
 
 	auto beg = std::chrono::steady_clock::now();
 	_spur_incremental(K, pfxt, save_pfxt_nodes, use_leaders, recover_paths);	
@@ -437,7 +439,7 @@ std::vector<Path> Ink::report_incremental(
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
 	// report complete, clear the update list
-	_clear_update_list();		
+	_clear_update_list();	
 	_num_affected_nodes = _affected_pfxtnodes.size();
 	_affected_pfxtnodes.clear();
 
@@ -847,8 +849,8 @@ void Ink::_sfxt_cache() {
 	
 	// clear and resize the table
 	// which we use to check link updates
-	_belongs_to_sfxt.clear();
-	_belongs_to_sfxt.resize(num_edges());
+	belongs_to_sfxt.clear();
+	belongs_to_sfxt.resize(num_edges());
 	
 	if (!_global_sfxt) {
 		// it's our first time constructing a global sfxt
@@ -911,8 +913,6 @@ void Ink::_sfxt_cache() {
 
 			// cache the current sfxt link of v, 
 			// so we can check if the link got updated
-			// NOTE: this part is sus, it's probably not marking the sfxt edges right
-			// TODO: look at this case later
 			auto old_link = sfxt.links[v];
 
 			// for each of v's fanout we redo relaxation
@@ -926,18 +926,17 @@ void Ink::_sfxt_cache() {
 				}
 			}	
 		
+			auto [eptr_new, w_sel_new] = _decode_edge(*sfxt.links[v]);
+			auto [eptr_old, w_sel_old] = _decode_edge(*old_link);
 			// compare the cached link to the current link
-			if (sfxt.links[v] != old_link) {
+			if (eptr_new && eptr_old &&
+					sfxt.links[v] != old_link) {
 				// this means another edge took over and became the successor
 				// or another weight is selected for the same edge
-				// NOTE: either case we need a vector<array[NUM_WEIGHTS]>
-				// to mark if a link took over, because multiple pfxt nodes
-				// may point to the same edge, but uses different weights
-				auto [eptr, w_sel] = _decode_edge(*sfxt.links[v]);
-				_belongs_to_sfxt[eptr->id][w_sel] = true;
+				belongs_to_sfxt[eptr_new->id][w_sel_new] = true;
+				belongs_to_sfxt[eptr_old->id][w_sel_old] = false;
 			}
 
-			
 		}	
 		
 				
@@ -1019,120 +1018,196 @@ Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 	return pfxt;
 }
 
+void Ink::_update_pfxt(Pfxt& pfxt) {
 
-void Ink::_identify_leaders(
-	PfxtNode* curr,
-	std::vector<PfxtNode*>& dfs_full,
-	std::vector<PfxtNode*>& dfs_marked,
-	size_t& order) {
-
-	// record full dfs traversal
-	dfs_full.emplace_back(curr);
-
-	// we push a node into the euler tour
-	// under 3 scenarios:
-	// 1. edge is removed (edge pointer == null)
-	// 2. edge link belongs to sfxt 
-	//		(since this node is in old prefix tree, we know
-	//		it turned from pfxt node into a sfxt node)
-	// 3. edge is marked as modified by the user AND
-	//		the edge link DOES NOT belong to sfxt, then we know
-	//		this node remains a pfxt node
-	auto [eptr, w_sel] = _decode_edge(*curr->link);
-
-	// NOTE:
-	// CAUTION! do not use node.edge here
-	// because it is not updated when remove_edge is called
-	// we need to check the eptrs mapping
-	if (eptr == nullptr ||
-			_belongs_to_sfxt[eptr->id][w_sel] ||
-			(eptr->modified && !_belongs_to_sfxt[eptr->id][w_sel])) {
-		dfs_marked.emplace_back(curr);
-	}
-
-	curr->subtree_beg = order++;
-
-	// traverse each children
-	for (auto c : curr->children) {
-		_identify_leaders(c, dfs_full, dfs_marked, order);
-	}
-
-
-	if (!dfs_marked.empty()) {
-		auto last = dfs_marked.back();
-		if (last == curr) {
-			if (eptr == nullptr || _belongs_to_sfxt[eptr->id][w_sel]) {
-				// this node will not exist in the new pfxt 
-				// store all its children node as leader nodes
-				for (auto c : curr->children) {
-					auto [e, wsel] = _decode_edge(*c->link);
-					_leaders[e->id][wsel] = c;
-					_leader_cnt++;
-				}
-			}
-			else if (eptr->modified && !_belongs_to_sfxt[eptr->id][w_sel]) {
-				_leaders[eptr->id][w_sel] = curr;
-				_leader_cnt++;
-			}
-		}
-	}
-
-	curr->subtree_end = order;
-}
-
-void Ink::_identify_leaders_upward() {
-	_leader_nodes.clear();
+	// sort affected pfxt nodes by level (ascending)
 	auto& ap = _affected_pfxtnodes;
 	if (ap.empty()) {
 		return;
 	}	
 
-	// sort affected pfxt nodes by level
-	// in descending order
 	std::sort(ap.begin(), ap.end(), [](PfxtNode* a, PfxtNode* b) {
-		return a->level > b->level;	
+		return a->level < b->level;	
 	});
 
-	// iterate through affected pfxt nodes
-	for (auto n : ap) {
-		auto [eptr, w_sel] = _decode_edge(*n->link);
-		// if not visited by leader
-		// this node is guaranteed to be a leader
-		if (!n->visited_by_leader) {
+	//for (auto p : ap) {
+	//	std::cout << "lvl=" << p->level << " e=" << p->edge->name() << " removed? " << belongs_to_sfxt[p->edge->id][0] << '\n';
+	//}
 
-			// populate leader lookup table entry
-			if (!_belongs_to_sfxt[eptr->id][w_sel]) {
-				// this node may appear in the new pfxt
-				_leaders[eptr->id][w_sel] = n;
-				_leader_nodes.emplace_back(n);
-			}
-			else {
-				// this node would never exist in the new pfxt
-				// but its children may appear
-				for (auto c : n->children) {
-					auto [e, ws] = _decode_edge(*c->link);
-					_leaders[e->id][ws] = c;
-					_leader_nodes.emplace_back(c);
-				}
-			}
+	// iterate through the affected nodes
+	std::queue<PfxtNode*> q;
+	auto& sfxt = *_global_sfxt;
+	for (auto p : ap) {
 
-			// upward traversal through parent, grandparent, etc.
-			// any node reachable is definitely not a leader
-			auto curr = n;
-			while (curr->parent) {
-				if (curr->parent->visited_by_leader) {
-					break;
-				}
-				curr->parent->visited_by_leader = true;
-				curr = curr->parent;
-			}
+		if (p->updated || p->removed) {
+			continue;
 		}
-		else {
-			// clear leader lookup table entry
-			_leaders[eptr->id][w_sel] = nullptr;
+
+		q.push(p);
+		while (!q.empty()) {
+			bool skip{false};
+			auto node = q.front();
+			q.pop();
+			
+			if (node->removed) {
+				skip = true;
+			}
+
+			if (!skip) {
+				auto [eptr, w_sel] = _decode_edge(*node->link);
+				if (!belongs_to_sfxt[eptr->id][w_sel]) {
+					// update cost
+					auto v = node->to;
+					auto u = node->from;
+					auto w = *eptr->weights[w_sel];
+					auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u];
+					node->cost = detour_cost + node->parent->cost;
+					node->updated = true;
+					node->parent->pruned.emplace_back(eptr->id, w_sel);
+				}
+				else {
+					node->removed = true;
+					// add this node's parent to the re-spur list
+					if (!node->parent->to_respur) {
+						_respurs.emplace_back(node->parent, std::move(node->parent->pruned));
+					}
+				}
+			}
+
+			for (auto c : node->children) {
+				q.push(c);
+				if (node->removed) {
+					c->removed = true;
+				}
+			}
+
 		}
 	}
+
+
+	// iterate through the re-spur list
+	// and spur each node with their
+	// corresponding pruned edge + weights
+	for (const auto& r : _respurs) {
+		_spur_pruned(pfxt, *r.node, r.pruned);	
+	}
+
+
 }
+
+//void Ink::_identify_leaders(
+//	PfxtNode* curr,
+//	std::vector<PfxtNode*>& dfs_full,
+//	std::vector<PfxtNode*>& dfs_marked,
+//	size_t& order) {
+//
+//	// record full dfs traversal
+//	dfs_full.emplace_back(curr);
+//
+//	// we push a node into the euler tour
+//	// under 3 scenarios:
+//	// 1. edge is removed (edge pointer == null)
+//	// 2. edge link belongs to sfxt 
+//	//		(since this node is in old prefix tree, we know
+//	//		it turned from pfxt node into a sfxt node)
+//	// 3. edge is marked as modified by the user AND
+//	//		the edge link DOES NOT belong to sfxt, then we know
+//	//		this node remains a pfxt node
+//	auto [eptr, w_sel] = _decode_edge(*curr->link);
+//
+//	// NOTE:
+//	// CAUTION! do not use node.edge here
+//	// because it is not updated when remove_edge is called
+//	// we need to check the eptrs mapping
+//	if (eptr == nullptr ||
+//			_belongs_to_sfxt[eptr->id][w_sel] ||
+//			(eptr->modified && !_belongs_to_sfxt[eptr->id][w_sel])) {
+//		dfs_marked.emplace_back(curr);
+//	}
+//
+//	curr->subtree_beg = order++;
+//
+//	// traverse each children
+//	for (auto c : curr->children) {
+//		_identify_leaders(c, dfs_full, dfs_marked, order);
+//	}
+//
+//
+//	if (!dfs_marked.empty()) {
+//		auto last = dfs_marked.back();
+//		if (last == curr) {
+//			if (eptr == nullptr || _belongs_to_sfxt[eptr->id][w_sel]) {
+//				// this node will not exist in the new pfxt 
+//				// store all its children node as leader nodes
+//				for (auto c : curr->children) {
+//					auto [e, wsel] = _decode_edge(*c->link);
+//					_leaders[e->id][wsel] = c;
+//					_leader_cnt++;
+//				}
+//			}
+//			else if (eptr->modified && !_belongs_to_sfxt[eptr->id][w_sel]) {
+//				_leaders[eptr->id][w_sel] = curr;
+//				_leader_cnt++;
+//			}
+//		}
+//	}
+//
+//	curr->subtree_end = order;
+//}
+
+//void Ink::_identify_leaders_upward() {
+//	_leader_nodes.clear();
+//	auto& ap = _affected_pfxtnodes;
+//	if (ap.empty()) {
+//		return;
+//	}	
+//
+//	// sort affected pfxt nodes by level
+//	// in descending order
+//	std::sort(ap.begin(), ap.end(), [](PfxtNode* a, PfxtNode* b) {
+//		return a->level > b->level;	
+//	});
+//
+//	// iterate through affected pfxt nodes
+//	for (auto n : ap) {
+//		auto [eptr, w_sel] = _decode_edge(*n->link);
+//		// if not visited by leader
+//		// this node is guaranteed to be a leader
+//		if (!n->visited_by_leader) {
+//
+//			// populate leader lookup table entry
+//			if (!_belongs_to_sfxt[eptr->id][w_sel]) {
+//				// this node may appear in the new pfxt
+//				_leaders[eptr->id][w_sel] = n;
+//				_leader_nodes.emplace_back(n);
+//			}
+//			else {
+//				// this node would never exist in the new pfxt
+//				// but its children may appear
+//				for (auto c : n->children) {
+//					auto [e, ws] = _decode_edge(*c->link);
+//					_leaders[e->id][ws] = c;
+//					_leader_nodes.emplace_back(c);
+//				}
+//			}
+//
+//			// upward traversal through parent, grandparent, etc.
+//			// any node reachable is definitely not a leader
+//			auto curr = n;
+//			while (curr->parent) {
+//				if (curr->parent->visited_by_leader) {
+//					break;
+//				}
+//				curr->parent->visited_by_leader = true;
+//				curr = curr->parent;
+//			}
+//		}
+//		else {
+//			// clear leader lookup table entry
+//			_leaders[eptr->id][w_sel] = nullptr;
+//		}
+//	}
+//}
 
 
 
@@ -1201,7 +1276,6 @@ void Ink::_spur_incsfxt(
 		}
 
 		// expand search space
-		_sses++;
 		_spur(pfxt, *node);
 	}
 
@@ -1223,23 +1297,10 @@ void Ink::_spur_incremental(
 	bool save_pfxt_nodes,
 	bool use_leaders,
 	bool recover_paths) {
-	auto& sfxt = *_global_sfxt;
 	
-	auto beg = std::chrono::steady_clock::now();
-	auto end = std::chrono::steady_clock::now();
-	_elapsed_time_idl = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-
-	for (auto p : _affected_pfxtnodes) {
-		auto [eptr, w_sel] = _decode_edge(*p->link);
-		if (eptr && _belongs_to_sfxt[eptr->id][w_sel]) {
-			std::cout << "eid=" << eptr->id << ", " << "w_sel=" << w_sel;
-			std::cout << " will not appear in new pfxt.\n";
-		}
-	}
-
-
-	beg = std::chrono::steady_clock::now();
+	_update_pfxt(pfxt);
+	
+	auto& sfxt = *_global_sfxt;
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
 		// no more paths to generate
@@ -1265,13 +1326,8 @@ void Ink::_spur_incremental(
 
 		// expand search space
 		// find children (more detours) for node
-		_sses++;
 		_spur(pfxt, *node);
 	}
-
-	end = std::chrono::steady_clock::now();
-	_elapsed_time_sploop = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
@@ -1388,6 +1444,69 @@ void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) {
 
 		u = *pfxt.sfxt.successors[u];
 	}
+}
+
+void Ink::_spur_pruned(
+	Pfxt& pfxt, 
+	PfxtNode& pfx,
+	const std::vector<std::pair<size_t, size_t>>& pruned) {
+	auto u = pfx.to;
+
+	// mark pruned edges on graph
+	for (const auto& p : pruned) {
+		_eptrs[p.first]->pruned_weights[p.second] = true;
+	}
+
+	while (u != pfxt.sfxt.T) {
+		//assert(pfxt.sfxt.links[u]);
+		auto uptr = _vptrs[u];
+
+		for (auto edge : uptr->fanout) {
+			for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+				if (!edge->weights[w_sel]) {
+					continue;
+				}
+
+				// skip if the edge goes outside of the suffix tree
+				// which is unreachable
+				auto v = edge->to.id;
+				if (!pfxt.sfxt.dists[v]) {
+					continue;
+				}
+
+				// skip if the edge belongs to the suffix 
+				// NOTE: we're detouring, so we don't want to
+				// go on the same paths explored by the suffix tree
+				if (pfxt.sfxt.links[u] &&
+						_encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+					continue;
+				}
+
+				// skip if the [edge id, weight sel] pair is marked as pruned
+				if (edge->pruned_weights[w_sel]) {
+					continue;
+				}
+
+				auto w = *edge->weights[w_sel];
+				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
+				
+				auto c = detour_cost + pfx.cost;
+				pfxt.push(c, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+			}
+		}
+
+		u = *pfxt.sfxt.successors[u];
+	}
+
+	// reset markings on pruned edges
+	// NOTE: they're only pruned when we spur this
+	// particular pfxt node
+	for (const auto& p : pruned) {
+		_eptrs[p.first]->pruned_weights[p.second] = false;
+	}
+
+	// TODO: finish the pfxt validation phase here
+
 }
 
 

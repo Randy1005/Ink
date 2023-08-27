@@ -11,6 +11,7 @@ list(APPEND INK_UNITTESTS
   glob_sfxt
   update_sfxt
   inc_pfxt
+  updated_or_removed_pfxt_nodes
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)

@@ -9,6 +9,7 @@ namespace ink {
 
 struct Vert;
 struct Edge;
+struct Respur;
 struct Sfxt;
 struct PfxtNode;
 struct Pfxt;
@@ -16,6 +17,7 @@ class Ink;
 struct Point;
 struct Path;
 class PathHeap;
+
 
 /**
 @brief Vertex
@@ -104,7 +106,26 @@ struct Edge {
 
 	// records which pfxt nodes depend on this edge
 	std::vector<PfxtNode*> dep_nodes;
+	
+	// records which weights are pruned on this edge
+	std::array<bool, NUM_WEIGHTS> pruned_weights;
+};
 
+/**
+@brief Re-Spur List Element
+*/
+struct Respur {
+	Respur(
+		PfxtNode* node, 
+		const std::vector<std::pair<size_t, size_t>>&& pruned) :
+		node{node},
+		pruned{std::move(pruned)}
+	{
+	}
+
+
+	PfxtNode* node;
+	std::vector<std::pair<size_t, size_t>> pruned;
 };
 
 
@@ -178,7 +199,10 @@ struct PfxtNode {
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
-	
+
+	// edge id + weight selection pairs to prune for re-spur
+	std::vector<std::pair<size_t, size_t>> pruned;
+
 	// record this node's subtree sequence index
 	// begin and end
 	size_t subtree_beg;
@@ -190,6 +214,10 @@ struct PfxtNode {
 
 	// record if visited by a leader's upward traversal
 	bool visited_by_leader{false};
+
+	bool updated{false};
+	bool removed{false};
+	bool to_respur{false};
 };
 
 
@@ -312,7 +340,6 @@ public:
 	*/
 	std::vector<float> get_path_costs();
 
-
 	inline size_t num_verts() const {
 		return _name2v.size();
 	} 
@@ -321,6 +348,8 @@ public:
 		return _edges.size();
 	}
 
+	// records if a link (edge, w_sel pair) became the sfxt's link
+	std::vector<std::array<bool, NUM_WEIGHTS>> belongs_to_sfxt;
 
 private:
 	/**
@@ -403,11 +432,22 @@ private:
 
 
 	/**
-	@brief Spur along the path to generate more prefix nodes, 
+	@brief Spur along the path to generate more pfxt node children, 
 	given a prefix node, until we reach the suffix tree's super target
 	*/
 	void _spur(Pfxt& pfxt, PfxtNode& pfx);
 	
+	/**
+	@brief Spur along the path to generate more pfxt node children, 
+	given a prefix node, until we reach the suffix tree's super target
+	(with a set of pruned edges)
+	*/
+	void _spur_pruned(
+		Pfxt& pfxt, 
+		PfxtNode& pfx, 
+		const std::vector<std::pair<size_t, size_t>>& pruned);
+	
+
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
 	*/
@@ -429,6 +469,16 @@ private:
 	and identifies the subtrees that are not affected
 	*/
 	void _identify_leaders_upward();
+
+	/**
+	@brief update pfxt nodes and markings
+	1. updated nodes: propagate costs to its subtree 
+		until it reaches a removed node
+	2. removed nodes: add its parent to the "re-spur" list
+		mark its left hand side siblings as "pruned", to prevent duplicate spur,
+		and mark its right hand side siblings as "removed"
+	*/
+	void _update_pfxt(Pfxt& pfxt);
 
 	/**
 	@brief propagate costs from the leader downwards to the subtree it leads
@@ -550,11 +600,9 @@ private:
 
 
 	// prefix nodes from the last report iteration
-	// (NOT heapified)
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_nodes;
 	std::vector<std::unique_ptr<PfxtNode>> _pfxt_paths;
 	std::vector<PfxtNode*> _pfxt_srcs;
-
 
 	// leader prefix nodes
 	// NOTE: we only store a raw pointer, an OBSERVER
@@ -566,8 +614,6 @@ private:
 	// leader nodes (not lookup table)
 	std::vector<PfxtNode*> _leader_nodes;
 
-	// records if a link (edge, w_sel pair) became the sfxt's link
-	std::vector<std::array<bool, NUM_WEIGHTS>> _belongs_to_sfxt;
 	
 	// dfs marked vector
 	// to record the nodes that: 
@@ -585,6 +631,9 @@ private:
 
 	// pfxt nodes affected
 	std::vector<PfxtNode*> _affected_pfxtnodes;
+
+	// re-spur list
+	std::vector<Respur> _respurs;
 
 	// num of affected nodes
 	size_t _num_affected_nodes{0};
