@@ -1,0 +1,5 @@
+if(EXISTS "/Users/zhangzhe/Randy/source/Ink/unittests/glob_sfxt_tests-b858cb2.cmake")
+  include("/Users/zhangzhe/Randy/source/Ink/unittests/glob_sfxt_tests-b858cb2.cmake")
+else()
+  add_test(glob_sfxt_NOT_BUILT-b858cb2 glob_sfxt_NOT_BUILT-b858cb2)
+endif()

@@ -1,0 +1,5 @@
+if(EXISTS "/Users/zhangzhe/Randy/source/Ink/unittests/inc_pfxt_tests-b858cb2.cmake")
+  include("/Users/zhangzhe/Randy/source/Ink/unittests/inc_pfxt_tests-b858cb2.cmake")
+else()
+  add_test(inc_pfxt_NOT_BUILT-b858cb2 inc_pfxt_NOT_BUILT-b858cb2)
+endif()

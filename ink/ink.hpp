@@ -1,6 +1,6 @@
 #pragma once
 #include <stack>
-#include <ot/timer/timer.hpp>
+// #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
 
 #define NUM_WEIGHTS 8
@@ -63,7 +63,7 @@ struct Vert {
 
 
 struct Edge {
-	Edge() = default;
+	Edge() = delete;
 	Edge(Vert& from, Vert& to, 
 			 const size_t id,
 			 std::array<std::optional<float>, 8>&& ws) :
@@ -143,8 +143,7 @@ struct Sfxt {
 		float d);
 	
 	/**
-	@brief returns the distance from super source to 
-	suffix tree root
+	@brief returns the shortest distance from sfxt super src
 	*/
 	inline std::optional<float> dist() const;
 
@@ -181,7 +180,8 @@ struct Sfxt {
 */
 struct PfxtNode {
 	PfxtNode(
-		float c, 
+		float c,
+    float dc,
 		size_t f, 
 		size_t t, 
 		Edge* e, 
@@ -189,13 +189,24 @@ struct PfxtNode {
 		std::optional<std::pair<size_t, size_t>> l);
 	
 	float cost;
-	size_t from;
+  float detour_cost;
+  size_t from;
 	size_t to;
 	Edge* edge{nullptr};
 	PfxtNode* parent{nullptr};
 	std::optional<std::pair<size_t, size_t>> link;
 
 	size_t num_children() const;
+
+  void print_stuff() const {
+    if (edge) {
+      std::cout << "edge=" << edge->name() << '\n';
+    }
+    std::cout << "updated=" << updated << '\n';
+    std::cout << "removed=" << removed << '\n';
+    std::cout << "detour_cost=" << detour_cost << '\n';
+    std::cout << "--------\n";
+  }
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
@@ -218,6 +229,7 @@ struct PfxtNode {
 	bool updated{false};
 	bool removed{false};
 	bool to_respur{false};
+  bool in_queue{false};
 };
 
 
@@ -241,6 +253,7 @@ struct Pfxt {
 	
 	PfxtNode* push(
 		float c,
+    float dc,
 		size_t f,
 		size_t t,
 		Edge* e,
@@ -256,8 +269,7 @@ struct Pfxt {
 	// prefix node comparator object
 	PfxtNodeComp comp;
 
-	// path nodes (basically the nodes that have been
-	// popped from the heap)
+	// path nodes (nodes popped from the heap)
 	std::vector<std::unique_ptr<PfxtNode>> paths;
 
 	// nodes (to use as a min heap)
@@ -265,7 +277,6 @@ struct Pfxt {
 
 	// sources
 	std::vector<PfxtNode*> srcs;
-
 };
 
 

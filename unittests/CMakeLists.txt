@@ -19,10 +19,13 @@ foreach(unittest IN LISTS INK_UNITTESTS)
 	add_test(NAME ${unittest} COMMAND ${unittest})	
 	set_property(TEST ${unittest} PROPERTY LABELS "ink-unit")
   target_include_directories(${unittest} 
-    PRIVATE ${PROJECT_SOURCE_DIR} ${INK_3RD_PARTY_DIR}/doctest)
-  
+    PRIVATE 
+	${PROJECT_SOURCE_DIR} 
+	${INK_3RD_PARTY_DIR}/doctest
+	${INK_3RD_PARTY_DIR}/OpenTimer)
+
   target_link_libraries(${unittest} 
-    LINK_PUBLIC ink stdc++fs)
+    LINK_PUBLIC ink)
   
   doctest_discover_tests(${unittest})
 endforeach()

@@ -1,0 +1,5 @@
+if(EXISTS "/Users/zhangzhe/Randy/source/Ink/unittests/sample_graph_tests-b858cb2.cmake")
+  include("/Users/zhangzhe/Randy/source/Ink/unittests/sample_graph_tests-b858cb2.cmake")
+else()
+  add_test(sample_graph_NOT_BUILT-b858cb2 sample_graph_NOT_BUILT-b858cb2)
+endif()

@@ -1,19 +1,18 @@
 cmake_minimum_required(VERSION 3.26.0)
 
 # this is hardcoded, can I configure cmake to auto locate nvcc for me?
-set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
+# set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 
 
-project(Ink VERSION 1.0 LANGUAGES C CXX CUDA)
+# project(Ink VERSION 1.0 LANGUAGES C CXX CUDA)
+project(Ink VERSION 1.0 LANGUAGES C CXX)
 
 
 # set everything up for c++XX features
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CUDA_ARCHITECTURES 75)
+set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CUDA_ARCHITECTURES 75)
 
 
-# set default compiler to be gcc g++ (DISCOURAGED)
-# set(CMAKE_C_COMPILER $ENV{DPCPP_COMPILER})
 
 #------------------------------------------------------------------------------
 # default release build
@@ -39,7 +38,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 
 endif()
 
-set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -Xcompiler -g -lineinfo --expt-extended-lambda")
+# set(CMAKE_CUDA_FLAGS_DEBUG "-g -G -Xcompiler -g -lineinfo --expt-extended-lambda")
 
 # Turn on the verbose
 set(CMAKE_VERBOSE_MAKEFILE ON)
@@ -52,6 +51,7 @@ set(INK_EXAMPLE_DIR ${PROJECT_SOURCE_DIR}/examples)
 # Benchmark directory variable
 set(INK_BENCHMARK_DIR ${PROJECT_SOURCE_DIR}/benchmarks)
 
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules)
 
 
 # Binary folder
@@ -62,9 +62,22 @@ message("CMAKE_BUILD_TYPE: " ${CMAKE_BUILD_TYPE})
 message(STATUS "INK_BENCHMARK_DIR: " ${INK_BENCHMARK_DIR})
 message(STATUS "BIN_DIR: " ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
+# test that filesystem header actually is there and works
+try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp" 
+"${CMAKE_SOURCE_DIR}/tests/has_filesystem.cc" 
+            CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON
+            LINK_LIBRARIES stdc++fs)
+if(HAS_FS)
+    message(STATUS "Compiler has filesystem support")
+else()
+#   .... You could also try searching for boost::filesystem here.
+    message(STATUS "Compiler is missing filesystem capabilities")
+endif(HAS_FS)
 
 
-option(INK_BUILD_CUDA "Enables builds of cuda code" ON)
+
+
+option(INK_BUILD_CUDA "Enables builds of cuda code" OFF)
 
 
 

@@ -10,15 +10,15 @@ target_include_directories(ink
   PUBLIC ${INK_3RD_PARTY_DIR}/OpenTimer)
 
 
-
 # find the pthreads library
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
+find_package(Filesystem REQUIRED)
 
 target_link_libraries(ink PRIVATE Threads::Threads)
-target_link_libraries(ink PRIVATE CUDA::cudart)
+# target_link_libraries(ink PRIVATE CUDA::cudart)
 target_link_libraries(ink PUBLIC OpenTimer)
-target_link_libraries(ink PUBLIC stdc++fs)
+target_link_libraries(ink PUBLIC std::filesystem)
 
 
 

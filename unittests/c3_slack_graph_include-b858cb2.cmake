@@ -1,0 +1,5 @@
+if(EXISTS "/Users/zhangzhe/Randy/source/Ink/unittests/c3_slack_graph_tests-b858cb2.cmake")
+  include("/Users/zhangzhe/Randy/source/Ink/unittests/c3_slack_graph_tests-b858cb2.cmake")
+else()
+  add_test(c3_slack_graph_NOT_BUILT-b858cb2 c3_slack_graph_NOT_BUILT-b858cb2)
+endif()

@@ -2,6 +2,10 @@
 #include <doctest.h>
 #include <ink/ink.hpp>
 
+const	float eps = 0.0001f;
+bool float_equal(const float f1, const float f2) {
+	return std::fabs(f1 - f2) < eps;
+}
 
 TEST_CASE("Classify Updated or Removed Pfxt Nodes" * doctest::timeout(300)) {
 	ink::Ink ink;
@@ -46,11 +50,21 @@ TEST_CASE("Classify Updated or Removed Pfxt Nodes" * doctest::timeout(300)) {
 	ink.insert_edge("g", "k", 11);
 	
 	auto& b = ink.belongs_to_sfxt;
-	
-	ink.report_incremental(4, true, false, false);
+  ink.report_incremental(8, true, false, false);
 	REQUIRE(!b[e1.id][0]);
 	REQUIRE(!b[e3.id][0]);
 	REQUIRE(!b[e10.id][0]);
 	REQUIRE(b[e6.id][0]);
+
+  auto costs = ink.get_path_costs();
+  REQUIRE(float_equal(costs[0], -5));  
+  REQUIRE(float_equal(costs[1], -4));  
+  REQUIRE(float_equal(costs[2], 1));  
+  REQUIRE(float_equal(costs[3], 9));  
+  REQUIRE(float_equal(costs[4], 10));  
+  REQUIRE(float_equal(costs[5], 12));  
+  REQUIRE(float_equal(costs[6], 15));  
+  REQUIRE(float_equal(costs[7], 16));  
+
 }
 

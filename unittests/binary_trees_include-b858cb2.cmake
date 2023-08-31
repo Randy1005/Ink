@@ -1,0 +1,5 @@
+if(EXISTS "/Users/zhangzhe/Randy/source/Ink/unittests/binary_trees_tests-b858cb2.cmake")
+  include("/Users/zhangzhe/Randy/source/Ink/unittests/binary_trees_tests-b858cb2.cmake")
+else()
+  add_test(binary_trees_NOT_BUILT-b858cb2 binary_trees_NOT_BUILT-b858cb2)
+endif()
