@@ -22,7 +22,6 @@ target_link_libraries(ink PUBLIC std::filesystem)
 
 
 
-set_property(TARGET ink PROPERTY CXX_STANDARD 23)
 target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
 
 

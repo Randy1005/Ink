@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.26.0)
+cmake_minimum_required(VERSION 3.18.0)
 
 # this is hardcoded, can I configure cmake to auto locate nvcc for me?
 # set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)

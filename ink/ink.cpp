@@ -217,9 +217,14 @@ Edge& Ink::insert_edge(
 
 		// record affected pfxt nodes
 		for (auto n : e.dep_nodes) {
-			_affected_pfxtnodes.push_back(std::move(n));
+			// reset node markings
+      _affected_pfxtnodes.push_back(n);
 		}
-		e.dep_nodes.clear();
+
+    // initialize pruned weights
+    for (size_t i = 0; i < NUM_WEIGHTS; i++) {
+      e.pruned_weights[i] = false;
+    }
 
 		return e;
 	}
@@ -260,6 +265,11 @@ Edge& Ink::insert_edge(
 
 			e.modified = true;
 		}
+
+    // initialize pruned weights
+    for (size_t i = 0; i < NUM_WEIGHTS; i++) {
+      e.pruned_weights[i] = false;
+    }
 
 		return e; 
 	}
@@ -1021,6 +1031,15 @@ Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 
 void Ink::_update_pfxt(Pfxt& pfxt) {
 
+  // reset node markings
+  for (auto& n : pfxt.paths) {
+    n->reset();
+  }
+
+  for (auto& n : pfxt.nodes) {
+    n->reset();
+  }
+
 	// sort affected pfxt nodes by level (ascending)
 	auto& ap = _affected_pfxtnodes;
 	if (ap.empty()) {
@@ -1096,7 +1115,7 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 	// and spur each node with their
 	// corresponding pruned edge + weights
 	for (const auto& r : _respurs) {
-		_spur_pruned(pfxt, *r.node, r.pruned);	
+		_spur_pruned(pfxt, *r.node, r.pruned);
 	}
 
   // update _all_path_costs
@@ -1110,8 +1129,12 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
   }
 
   // validate the priority queue
-  while (pfxt.top()->detour_cost < max_dc) {
+  for (auto t = pfxt.top(); t && t->detour_cost < max_dc; ) {
     auto node = pfxt.pop();
+    if (node == nullptr) {
+      break;
+    }
+
     if (node->removed) {
       continue;
     }
@@ -1545,9 +1568,6 @@ void Ink::_spur_pruned(
 	for (const auto& p : pruned) {
 		_eptrs[p.first]->pruned_weights[p.second] = false;
 	}
-
-	// TODO: finish the pfxt validation phase here
-
 }
 
 
@@ -1712,6 +1732,14 @@ PfxtNode::PfxtNode(
 
 size_t PfxtNode::num_children() const {
 	return children.size();
+}
+
+void PfxtNode::reset() {
+  updated = false;
+  removed = false;
+  in_queue = false;
+  to_respur = false;
+  pruned.clear(); 
 }
 
 Pfxt::Pfxt(const Sfxt& sfxt) : 

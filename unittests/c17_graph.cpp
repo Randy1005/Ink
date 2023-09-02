@@ -717,11 +717,6 @@ TEST_CASE("c17 Benchmark w/ Incremental Update" * doctest::timeout(300)) {
 	std::advance(it, 1);
 	REQUIRE(it->vert.name == "nx22");
 	REQUIRE(float_equal(it->dist, 17.0f));
-	
-	for (const auto& p : paths) {
-		p.dump(std::cout);
-	}
-
 }
 
 

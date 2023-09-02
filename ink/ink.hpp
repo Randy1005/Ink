@@ -197,16 +197,9 @@ struct PfxtNode {
 	std::optional<std::pair<size_t, size_t>> link;
 
 	size_t num_children() const;
-
-  void print_stuff() const {
-    if (edge) {
-      std::cout << "edge=" << edge->name() << '\n';
-    }
-    std::cout << "updated=" << updated << '\n';
-    std::cout << "removed=" << removed << '\n';
-    std::cout << "detour_cost=" << detour_cost << '\n';
-    std::cout << "--------\n";
-  }
+ 
+  // reset node markings, pruned_weights
+  void reset();
 
 	// for traversing the prefix tree
 	std::vector<PfxtNode*> children;
