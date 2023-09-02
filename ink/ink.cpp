@@ -561,16 +561,8 @@ void Ink::dump_pfxt_nodes(std::ostream& os) const {
 
 void Ink::dump_profile(std::ostream& os, bool reset) {
 	os << "======== Profile ========\n";
-	os << "identify leader time: " << _elapsed_time_idl << " ns ("
-		 << _elapsed_time_idl / 1000000000.0f << " sec)\n";
-	//os << "prop tree time: " << _elapsed_prop << " ns ("
-	//	 << _elapsed_prop / 1000000000.0f << " sec)\n";
-	os << "spur loop: " << _elapsed_time_sploop << " ns ("
-		 << _elapsed_time_sploop / 1000000000.0f << " sec)\n";
-	os << "search space expansions: " << _sses << '\n';
-	os << "subtree propagations: " << _props << '\n';
-	os << "num of affected nodes: " << _num_affected_nodes << '\n';
-	os << "num of leaders: " << _leader_nodes.size() << '\n';
+	os << "spur time: " << _elapsed_time_spur << " ns ("
+		 << _elapsed_time_spur / 10e+9 << " sec)\n";
 	if (reset) {
 		_elapsed_time_spur = 0;
 		_elapsed_time_spur2 = 0;
@@ -669,7 +661,8 @@ void Ink::_read_ops(std::istream& is, std::ostream& os) {
 			continue;
 		}
 		
-		if (buf == "report_incsfxt") {
+		if (buf == "report") {
+      std::cout << "report (no inc-pfxt)\n";
 			is >> buf;
 			size_t num_paths = std::stoul(buf);
 
@@ -677,36 +670,15 @@ void Ink::_read_ops(std::istream& is, std::ostream& os) {
 			is >> buf;
 			bool save_pfxt_nodes = std::stoi(buf);
 
-			auto paths = report_incsfxt(num_paths, save_pfxt_nodes);
-			os << paths.size() << '\n';
-			for (const auto& p : paths) {
-				os << p.weight << ' ';
-			}
-			os << '\n';
+      // enable recover path or not
+      is >> buf;
+      bool recover_paths = std::stoi(buf);
+
+      std::cout << "save_pfxt_nodes=" << save_pfxt_nodes << '\n';
+      std::cout << "recover_paths=" << recover_paths << '\n';
+
+			report_incsfxt(num_paths, save_pfxt_nodes, recover_paths);
 		}
-
-			
-		if (buf == "report_incremental") {
-			is >> buf;
-			size_t num_paths = std::stoul(buf);
-
-			// enable save_pfxt_nodes?
-			is >> buf;
-			bool save_pfxt_nodes = std::stoi(buf);
-
-			// enable use_leaders or not
-			is >> buf;
-			bool use_leaders = std::stoi(buf);
-			
-			auto paths = report_incremental(num_paths, save_pfxt_nodes, use_leaders);
-			os << paths.size() << '\n';
-			for (const auto& p : paths) {
-				os << p.weight << ' ';
-			}
-			os << '\n';
-		}
-
-
 
 		if (buf == "insert_edge") {
 			std::array<std::optional<float>, 8> ws;
