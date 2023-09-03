@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
+    std::cout << "diff = " << diff << " / " << num_paths << '\n';
 	
 	}
 	else if (mode == 1) {
@@ -91,7 +91,6 @@ int main(int argc, char* argv[]) {
 		// disable save_pfxt_nodes
 		ink.report_incremental(num_paths, false, false, false);
 		ink.dump_profile(std::cout, true);
-		
 		
     std::ofstream ofs(argv[2]);
 		// output costs to a file
@@ -108,7 +107,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
+    std::cout << "diff = " << diff << " / " << num_paths << '\n';
 	}
 	
 	return 0;

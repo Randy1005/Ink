@@ -215,12 +215,7 @@ Edge& Ink::insert_edge(
 			e.modified = true;
 		}
 
-		// record affected pfxt nodes
-		for (auto n : e.dep_nodes) {
-			// reset node markings
-      _affected_pfxtnodes.push_back(n);
-		}
-
+		
     // initialize pruned weights
     for (size_t i = 0; i < NUM_WEIGHTS; i++) {
       e.pruned_weights[i] = false;
@@ -901,7 +896,12 @@ void Ink::_sfxt_cache() {
 
 			// for each of v's fanout we redo relaxation
 			for (auto e : vptr->fanout) {
-				auto t = e->to.id;
+        // record affected pfxt nodes
+		    for (auto n : e->dep_nodes) {
+          _affected_pfxtnodes.push_back(n);
+		    }
+
+        auto t = e->to.id;
 				auto w_sel = e->min_valid_weight();
 				if (w_sel != NUM_WEIGHTS) {
 					auto d = *e->weights[w_sel];
