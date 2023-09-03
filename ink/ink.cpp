@@ -557,7 +557,7 @@ void Ink::dump_pfxt_nodes(std::ostream& os) const {
 void Ink::dump_profile(std::ostream& os, bool reset) {
 	os << "======== Profile ========\n";
 	os << "spur time: " << _elapsed_time_spur << " ns ("
-		 << _elapsed_time_spur / 10e+9 << " sec)\n";
+		 << _elapsed_time_spur * 1e-9 << " sec)\n";
 	if (reset) {
 		_elapsed_time_spur = 0;
 		_elapsed_time_spur2 = 0;
@@ -1090,6 +1090,8 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 		_spur_pruned(pfxt, *r.node, r.pruned);
 	}
 
+  std::cout << "re-spur completed.\n";
+
   // update _all_path_costs
   _all_path_costs.clear();
   auto max_dc = 0.0f;
@@ -1100,20 +1102,25 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
     }
   }
 
+  std::cout << "path costs updated.\n";
   // validate the priority queue
-  for (auto t = pfxt.top(); t && t->detour_cost < max_dc; ) {
+  for (;;) {
     auto node = pfxt.pop();
     if (node == nullptr) {
       break;
     }
 
+    // std::cout << "node.dc=" << node->detour_cost << ", max_dc=" << max_dc << '\n';
     if (node->removed) {
       continue;
     }
     // update max detour cost
-    max_dc = std::max(node->detour_cost, max_dc);
 		_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
     _spur(pfxt, *node);
+
+    if (node->detour_cost >= max_dc) {
+      break;
+    }
   }
 
 }
@@ -1323,13 +1330,14 @@ void Ink::_spur_incremental(
 	bool recover_paths) {
 	
 	_update_pfxt(pfxt);
-	// pfxt is in a valid state now
+	std::cout << "completed update pfxt.\n";
+
+  // pfxt is in a valid state now
   // if we already have enough paths (or costs)
   // we can stop here
   if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
 		return;
 	}
-
 
 	auto& sfxt = *_global_sfxt;
 	while (!(pfxt.num_nodes() == 0)) {
@@ -1362,6 +1370,8 @@ void Ink::_spur_incremental(
 		// find children (more detours) for node
 		_spur(pfxt, *node);
 	}
+
+  std::cout << "completed spurring.\n";
 
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);

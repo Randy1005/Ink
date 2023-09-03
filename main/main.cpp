@@ -69,6 +69,10 @@ int main(int argc, char* argv[]) {
 		// output costs to a file
     auto costs_new = ink.get_path_costs();
     for (size_t i = 0; i < num_paths; i++) {
+      if (i > costs_new.size() - 1) {
+        break;
+      }
+
 			ofs << costs_new[i] << '\n';
 		}
 
@@ -80,7 +84,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::cout << "diff = " << diff << " / " << num_paths << '\n';
+    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
 	
 	}
 	else if (mode == 1) {
@@ -96,6 +100,9 @@ int main(int argc, char* argv[]) {
 		// output costs to a file
     auto costs_new = ink.get_path_costs();
     for (size_t i = 0; i < num_paths; i++) {
+      if (i > costs_new.size() - 1) {
+        break;
+      }
 			ofs << costs_new[i] << '\n';
 		}
 
@@ -107,7 +114,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::cout << "diff = " << diff << " / " << num_paths << '\n';
+    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
 	}
 	
 	return 0;
