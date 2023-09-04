@@ -1090,8 +1090,6 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 		_spur_pruned(pfxt, *r.node, r.pruned);
 	}
 
-  std::cout << "re-spur completed.\n";
-
   // update _all_path_costs
   _all_path_costs.clear();
   auto max_dc = 0.0f;
@@ -1102,7 +1100,6 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
     }
   }
 
-  std::cout << "path costs updated.\n";
   // validate the priority queue
   for (;;) {
     auto node = pfxt.pop();
@@ -1330,7 +1327,6 @@ void Ink::_spur_incremental(
 	bool recover_paths) {
 	
 	_update_pfxt(pfxt);
-	std::cout << "completed update pfxt.\n";
 
   // pfxt is in a valid state now
   // if we already have enough paths (or costs)
@@ -1370,8 +1366,6 @@ void Ink::_spur_incremental(
 		// find children (more detours) for node
 		_spur(pfxt, *node);
 	}
-
-  std::cout << "completed spurring.\n";
 
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
