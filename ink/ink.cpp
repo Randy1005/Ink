@@ -581,33 +581,6 @@ void Ink::dump_profile(std::ostream& os, bool reset) {
 }
 
 
-void Ink::modify_random_vertex() {
-	//std::uniform_int_distribution<uint32_t> uint_dist(0, num_verts());
-
-	//const size_t vid = uint_dist(_rng);
-	//auto vptr = _vptrs[vid];
-	//
-	//std::array<std::optional<float>, NUM_WEIGHTS> ws;
-
-	auto& v = insert_vertex("inst_83497:RN");
-	
-	for (auto e : v.fanout) {
-		for (size_t i = 0; i < NUM_WEIGHTS; i++) {
-			*e->weights[i] -= 0.025f;
-		}
-	}
-
-	for (auto e : v.fanin) {
-		for (size_t i = 0; i < NUM_WEIGHTS; i++) {
-			*e->weights[i] -= 0.025f;
-		}
-	}
-
-
-
-
-}
-
 float Ink::vec_diff(
 	const std::vector<Path>& ps1, 
 	const std::vector<Path>& ps2,
@@ -1085,34 +1058,40 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
  
 	// iterate through the re-spur list
 	// and spur each node with their
-	// corresponding pruned edge + weights
+	// corresponding pruned edge/weights
 	for (const auto& r : _respurs) {
 		_spur_pruned(pfxt, *r.node, r.pruned);
 	}
 
-  // update _all_path_costs
+  // validate paths and update costs
   _all_path_costs.clear();
   auto max_dc = 0.0f;
   for (const auto& n : pfxt.paths) {
     if (!n->removed) {
       _all_path_costs.push_back(n->detour_cost + *sfxt.dist());
+      
+      // if not already spurred, spur here
+      if (n->num_children() == 0) {
+        _spur(pfxt, *n);
+      }   
+      
       max_dc = std::max(n->detour_cost, max_dc);
     }
   }
 
   // validate the priority queue
+  // TODO: is this part correct?
   for (;;) {
     auto node = pfxt.pop();
     if (node == nullptr) {
       break;
     }
 
-    // std::cout << "node.dc=" << node->detour_cost << ", max_dc=" << max_dc << '\n';
     if (node->removed) {
       continue;
     }
-    // update max detour cost
-		_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
+		
+    _all_path_costs.push_back(node->detour_cost + *sfxt.dist());
     _spur(pfxt, *node);
 
     if (node->detour_cost >= max_dc) {
@@ -1331,6 +1310,7 @@ void Ink::_spur_incremental(
   // pfxt is in a valid state now
   // if we already have enough paths (or costs)
   // we can stop here
+  std::cout << "after update, all paths = " << _all_path_costs.size() << '\n';
   if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
 		return;
 	}
@@ -1926,6 +1906,5 @@ void PathHeap::dump(std::ostream& os) const {
 		p->dump(os);
 	}
 }
-
 
 } // end of namespace ink 

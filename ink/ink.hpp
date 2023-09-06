@@ -326,12 +326,6 @@ public:
 	void dump_profile(std::ostream& os, bool reset = false);
 
 	/**
-	@brief randomly pick a vertex and modify its fanin / fanouts
-	(for the purpose of measuring difference between queries)
-	*/
-	void modify_random_vertex();
-
-	/**
 	@brief outputs the percentage of difference between 2 path weight vectors
 	*/
 	float vec_diff(

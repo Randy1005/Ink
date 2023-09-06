@@ -110,7 +110,7 @@ TEST_CASE("Update Edges 2" * doctest::timeout(300)) {
 	REQUIRE(float_equal(costs[10], 20));
 }
 
-TEST_CASE("Report More Costs, Then Incrementally Update Pfxt" * doctest::timeout(300)) {
+TEST_CASE("Update Edges 2 - Report More Costs, Then Report Less" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("A", "B", -1);
 	ink.insert_edge("A", "C", 3);
@@ -199,6 +199,77 @@ TEST_CASE("Update Edges 2 (Update Different Edges)" * doctest::timeout(300)) {
 	REQUIRE(float_equal(costs[10], 16));
 }
 
+TEST_CASE("Update Edges 2 (Reporting Less Than All Possible Costs (11 Costs))" * doctest::timeout(300)) {
+	ink::Ink ink;
+	ink.insert_edge("A", "B", -1);
+	ink.insert_edge("A", "C", 3);
+	ink.insert_edge("C", "D", 1);
+	ink.insert_edge("C", "E", 2);
+	ink.insert_edge("D", "B", 3);
+
+	ink.insert_edge("B", "F", 1);
+	ink.insert_edge("B", "G", 2);
+	ink.insert_edge("F", "H", -4);
+	ink.insert_edge("F", "I", 8);
+	ink.insert_edge("I", "L", 4);
+	ink.insert_edge("I", "M", 11);
+
+	ink.insert_edge("G", "J", 5);
+	ink.insert_edge("G", "K", 7);
+
+  ink.report_incsfxt(8, true);
+
+	// modify F->I weight to -9, F->I becomes a suffix tree edge
+  ink.insert_edge("F", "I", -9);
+	ink.report_incremental(4, true, false, false);
+
+  auto costs = ink.get_path_costs();
+
+	REQUIRE(float_equal(costs[0], -5));
+	REQUIRE(float_equal(costs[1], -4));
+	REQUIRE(float_equal(costs[2], 2));
+	REQUIRE(float_equal(costs[3], 3));
+}
+
+TEST_CASE("Update Edges 2 (pfxt.paths validation check)" * doctest::timeout(300)) {
+	ink::Ink ink;
+	ink.insert_edge("A", "B", -1);
+	ink.insert_edge("A", "C", 3);
+	ink.insert_edge("C", "D", 1);
+	ink.insert_edge("C", "E", 2);
+	ink.insert_edge("D", "B", 3);
+
+	ink.insert_edge("B", "F", 1);
+	ink.insert_edge("B", "G", 2);
+	ink.insert_edge("F", "H", -4);
+	ink.insert_edge("F", "I", 8);
+	ink.insert_edge("I", "L", 4);
+	ink.insert_edge("I", "M", 11);
+
+	ink.insert_edge("G", "J", 5);
+	ink.insert_edge("G", "K", 7);
+
+  ink.report_incsfxt(3, true, false);
+
+	// modify F->I weight to -9, F->I becomes a suffix tree edge
+  ink.insert_edge("F", "I", -9);
+	ink.report_incremental(11, true, false, false);
+
+  auto costs = ink.get_path_costs();
+
+
+  REQUIRE(float_equal(costs[0], -5));
+	REQUIRE(float_equal(costs[1], -4));
+	REQUIRE(float_equal(costs[2], 2));
+	REQUIRE(float_equal(costs[3], 3));
+	REQUIRE(float_equal(costs[4], 4));
+	REQUIRE(float_equal(costs[5], 5));
+	REQUIRE(float_equal(costs[6], 6));
+	REQUIRE(float_equal(costs[7], 8));
+	REQUIRE(float_equal(costs[8], 10));
+	REQUIRE(float_equal(costs[9], 14));
+	REQUIRE(float_equal(costs[10], 16));
+}
 
 //TEST_CASE("Update Edges 3" * doctest::timeout(300)) {
 //	ink::Ink ink;
