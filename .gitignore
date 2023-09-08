@@ -11,6 +11,7 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 *.cmake
+*.tcl
 
 # build folder
 [Bb]uild/
@@ -21,10 +22,9 @@ _deps
 [Bb]uild-debug/*
 [Bb]uild-debug*
 
-# regression
-[Rr]egressions/*
-[Rr]egressions/**
-[Rr]egressions/
+# experiment
+[Ee]xperiment/
+[Ee]xperiment/*
 
 # swp files
 *.swp
@@ -41,6 +41,3 @@ vgcore*
 # benchmarks
 [Bb]enchmarks/
 [Bb]enchmarks/*
-
-# *_timing executables
-*_timing

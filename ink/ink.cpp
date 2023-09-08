@@ -364,7 +364,7 @@ std::vector<Path> Ink::report_incsfxt(
 	auto beg = std::chrono::steady_clock::now();
 	_spur_incsfxt(K, heap, pfxt, save_pfxt_nodes, recover_paths);	
 	auto end = std::chrono::steady_clock::now();
-	_elapsed_time_spur = 
+	elapsed_time_spur = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	
 	// report complete, clear the update list
@@ -399,7 +399,7 @@ std::vector<Path> Ink::report_rebuild(size_t K) {
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_spur = elapsed;
+	elapsed_time_spur = elapsed;
 	
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -441,7 +441,7 @@ std::vector<Path> Ink::report_incremental(
 	auto beg = std::chrono::steady_clock::now();
 	_spur_incremental(K, pfxt, save_pfxt_nodes, use_leaders, recover_paths);	
 	auto end = std::chrono::steady_clock::now();
-	_elapsed_time_spur = 
+	elapsed_time_spur = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
 	// report complete, clear the update list
@@ -556,10 +556,10 @@ void Ink::dump_pfxt_nodes(std::ostream& os) const {
 
 void Ink::dump_profile(std::ostream& os, bool reset) {
 	os << "======== Profile ========\n";
-	os << "spur time: " << _elapsed_time_spur << " ns ("
-		 << _elapsed_time_spur * 1e-9 << " sec)\n";
+	os << "spur time: " << elapsed_time_spur << " ns ("
+		 << elapsed_time_spur * 1e-9 << " sec)\n";
 	if (reset) {
-		_elapsed_time_spur = 0;
+		elapsed_time_spur = 0;
 		_elapsed_time_spur2 = 0;
 		_elapsed_time_sploop = 0;
 		_elapsed_time_idl = 0;
@@ -614,6 +614,36 @@ std::vector<float> Ink::get_path_costs() {
   auto costs = std::move(_all_path_costs);
 	_all_path_costs.clear();
 	return costs;
+}
+
+
+void Ink::update_edges_percent(float percent, const std::string& dmp) {
+  size_t N = _eptrs.size() * (percent / 100.0f);
+  std::cout << percent << "\% of " << _eptrs.size() << " is " << N << '\n';
+
+  std::ofstream ofs(dmp);
+  const float offset = 0.35f;
+  // NOTE: we have to call insert_edge or else ink won't
+  // identify the affected pfxt nodes
+  //
+  // TODO: does this API make sense?
+  for (size_t i = 0; i < N; i++) {
+    // dump edge name
+    ofs << _eptrs[i]->name() << '\n';   
+    auto ws = _eptrs[i]->weights;
+    for (size_t j = 0; j < NUM_WEIGHTS; j++) {
+      if (ws[j]) {
+        *ws[j] += offset;
+      }
+    }
+
+    insert_edge(
+      _eptrs[i]->from.name, 
+      _eptrs[i]->to.name,
+      ws[0], ws[1], ws[2], ws[3],
+      ws[4], ws[5], ws[6], ws[7]
+    );
+  }
 }
 
 void Ink::_read_ops(std::istream& is, std::ostream& os) {
@@ -988,6 +1018,7 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 	// sort affected pfxt nodes by level (ascending)
 	auto& ap = _affected_pfxtnodes;
 	if (ap.empty()) {
+    std::cout << "no affected pfxt nodes recorded.\n";
 		return;
 	}	
 
@@ -1057,13 +1088,13 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 
  
 	// iterate through the re-spur list
-	// and spur each node with their
+	// and spur each pfxt node with their
 	// corresponding pruned edge/weights
 	for (const auto& r : _respurs) {
 		_spur_pruned(pfxt, *r.node, r.pruned);
 	}
 
-  // validate paths and update costs
+  // validate paths and update max detour cost
   _all_path_costs.clear();
   auto max_dc = 0.0f;
   for (const auto& n : pfxt.paths) {
@@ -1080,7 +1111,10 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
   }
 
   // validate the priority queue
-  // TODO: is this part correct?
+  // TODO: BUG?
+  // NOTE: incremental report seems to be skipping some
+  // costs, the condition in this validation phase is 
+  // probably not right 
   for (;;) {
     auto node = pfxt.pop();
     if (node == nullptr) {
@@ -1254,8 +1288,8 @@ void Ink::_spur_incsfxt(
 	Pfxt& pfxt, 
 	bool save_pfxt_nodes,
 	bool recover_paths) {
-	auto& sfxt = *_global_sfxt;
-	auto beg = std::chrono::steady_clock::now();
+	
+  auto& sfxt = *_global_sfxt;
 	_all_path_costs.clear();
   while (!(pfxt.num_nodes() == 0)) {
 		auto node = pfxt.pop();
@@ -1285,10 +1319,6 @@ void Ink::_spur_incsfxt(
 		// expand search space
 		_spur(pfxt, *node);
 	}
-
-	auto end = std::chrono::steady_clock::now();
-	_elapsed_time_sploop = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count(); 
 
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
@@ -1469,8 +1499,8 @@ void Ink::_spur_pruned(
 	Pfxt& pfxt, 
 	PfxtNode& pfx,
 	const std::vector<std::pair<size_t, size_t>>& pruned) {
-	auto u = pfx.to;
-
+	
+  auto u = pfx.to;
 	// mark pruned edges on graph
 	for (const auto& p : pruned) {
 		_eptrs[p.first]->pruned_weights[p.second] = true;

@@ -11,24 +11,26 @@
 # add_executable(vga_lcd_timing ${INK_EXAMPLE_DIR}/vga_lcd/vga_lcd.cpp)
 
 # example: tv80.cpp
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/tv80)
-# add_executable(tv80_timing ${INK_EXAMPLE_DIR}/tv80/tv80.cpp)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/tv80)
+add_executable(tv80_example ${INK_EXAMPLE_DIR}/tv80/tv80.cpp)
 
-# example: c7552.cpp
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c7552)
-# add_executable(c7552_timing ${INK_EXAMPLE_DIR}/c7552/c7552.cpp)
+# example: wb_dma.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/wb_dma)
+add_executable(wb_dma_example ${INK_EXAMPLE_DIR}/wb_dma/wb_dma.cpp)
 
-# example: c17.cpp
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c17)
-# add_executable(c17_timing ${INK_EXAMPLE_DIR}/c17/c17.cpp)
+# example: des_perf.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/des_perf)
+add_executable(des_perf_example ${INK_EXAMPLE_DIR}/des_perf/des_perf.cpp)
+
+# example: des_perf.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/aes_core)
+add_executable(aes_core_example ${INK_EXAMPLE_DIR}/aes_core/aes_core.cpp)
 
 list(APPEND INK_EXAMPLES
-#   simple_timing
-#   c432_timing
-#  vga_lcd_timing
-#   tv80_timing
-#   c7552_timing
-#  c17_timing
+  tv80_example
+  wb_dma_example
+  des_perf_example
+  aes_core_example
 )
 
 find_package(Threads REQUIRED)

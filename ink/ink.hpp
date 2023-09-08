@@ -338,6 +338,12 @@ public:
 	*/
 	std::vector<float> get_path_costs();
 
+  /**
+  @brief update the given percentage of edges
+  */
+  void update_edges_percent(float percent, const std::string& dmp);
+
+
 	inline size_t num_verts() const {
 		return _name2v.size();
 	} 
@@ -348,6 +354,10 @@ public:
 
 	// records if a link (edge, w_sel pair) became the sfxt's link
 	std::vector<std::array<bool, NUM_WEIGHTS>> belongs_to_sfxt;
+
+
+	size_t elapsed_time_spur{0};
+
 
 private:
 	/**
@@ -650,7 +660,6 @@ private:
 	size_t _props{0};
 
 	// elapsed time: whole spur function
-	size_t _elapsed_time_spur{0};
 	size_t _elapsed_time_spur2{0};
 
 	// elapsed time: identify leaders
