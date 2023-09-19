@@ -1,37 +1,5 @@
 #include <ink/ink.hpp>
 
-
-//std::vector<ink::Path> report_N(ink::Ink& ink, size_t N, size_t K, size_t mode) {
-//	size_t elapsed{0};
-//	
-//	std::vector<ink::Path> paths;
-//	for (size_t i = 0; i < N; i++) {
-//		ink.insert_edge("x10842", "inst_83400:RN", 0.00245);	
-//		ink.insert_edge("x10842", "inst_83497:RN", 0, -0.00032);	
-//			
-//		auto beg = std::chrono::steady_clock::now();
-//		if (mode == 0) {
-//			paths = ink.report_incsfxt(K, false);	
-//		}
-//		else if (mode == 1) {
-//			paths = ink.report_incremental(K, false, true);
-//		}
-//		auto end = std::chrono::steady_clock::now();
-//		elapsed +=
-//			std::chrono::duration_cast<std::chrono::milliseconds>(end-beg).count();
-//		std::cout << "report " 
-//							<< i << " finished, accumulated elapsed = " 
-//							<< elapsed << " ms.\n";
-//		ink.dump_profile(std::cout, true);
-//	}
-//
-//	std::cout << "accumulated report time of " 
-//						<< N << " reports (" << K << " paths per report) = "
-//						<< elapsed << " ms. (" << elapsed / 1000.0f << " s)\n";
-//	return paths;
-//}
-
-
 int main(int argc, char* argv[]) {
 	if (argc < 5) {
 		std::cerr 
@@ -53,6 +21,9 @@ int main(int argc, char* argv[]) {
 	else if (mode == 1) {
 		std::cout << "incpfxt\n";
 	}
+  else if (mode == 2) {
+    std::cout << "rebuild-all\n";
+  }
   else {
     std::cout << "percentage-update\n";
   }
@@ -78,16 +49,6 @@ int main(int argc, char* argv[]) {
 
 			ofs << costs_new[i] << '\n';
 		}
-
-    size_t diff = 0;
-    // count how many different costs between old & new
-    for (size_t i = 0; i < costs_old.size(); i++) {
-      if (costs_old[i] != costs_new[i]) {
-        diff++;
-      }
-    }
-
-    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
 	
 	}
 	else if (mode == 1) {
@@ -108,17 +69,24 @@ int main(int argc, char* argv[]) {
       }
 			ofs << costs_new[i] << '\n';
 		}
-
-    size_t diff = 0;
-    // count how many different costs between old & new
-    for (size_t i = 0; i < costs_old.size(); i++) {
-      if (costs_old[i] != costs_new[i]) {
-        diff++;
-      }
-    }
-
-    std::cout << "diff = " << diff << " / " << costs_old.size() << '\n';
 	}
+  else if (mode == 2) {
+    auto costs_old = ink.get_path_costs();
+	  	
+    // report again with everything rebuilt 
+		ink.report_rebuild(num_paths, false);
+		
+    std::ofstream ofs(argv[2]);
+		// output costs to a file
+    auto costs_new = ink.get_path_costs();
+    for (size_t i = 0; i < num_paths; i++) {
+      if (i > costs_new.size() - 1) {
+        break;
+      }
+			ofs << costs_new[i] << '\n';
+		}
+
+  }
   else {
     // 2 instances of Ink
     ink::Ink i1, i2;

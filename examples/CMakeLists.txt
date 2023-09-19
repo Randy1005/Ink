@@ -22,15 +22,30 @@ add_executable(wb_dma_example ${INK_EXAMPLE_DIR}/wb_dma/wb_dma.cpp)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/des_perf)
 add_executable(des_perf_example ${INK_EXAMPLE_DIR}/des_perf/des_perf.cpp)
 
-# example: des_perf.cpp
+# example: aes_core.cpp
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/aes_core)
 add_executable(aes_core_example ${INK_EXAMPLE_DIR}/aes_core/aes_core.cpp)
+
+# example: aes_core.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/ac97_ctrl)
+add_executable(ac97_ctrl_example ${INK_EXAMPLE_DIR}/ac97_ctrl/ac97_ctrl.cpp)
+
+# example: leon2_iccad.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/leon2)
+add_executable(leon2_iccad_example ${INK_EXAMPLE_DIR}/leon2/leon2_iccad.cpp)
+
+# example: netcard_iccad.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/netcard)
+add_executable(netcard_iccad_example ${INK_EXAMPLE_DIR}/netcard/netcard_iccad.cpp)
 
 list(APPEND INK_EXAMPLES
   tv80_example
   wb_dma_example
   des_perf_example
   aes_core_example
+  ac97_ctrl_example
+  leon2_iccad_example
+  netcard_iccad_example
 )
 
 find_package(Threads REQUIRED)

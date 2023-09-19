@@ -1,5 +1,4 @@
 #pragma once
-#include <stack>
 // #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
 
@@ -222,7 +221,7 @@ struct PfxtNode {
 	bool updated{false};
 	bool removed{false};
 	bool to_respur{false};
-  bool in_queue{false};
+  bool is_path{false};
 };
 
 
@@ -309,7 +308,9 @@ public:
 		size_t K, 
 		bool save_pfxt_nodes = false,
 		bool recover_paths = true);
-	std::vector<Path> report_rebuild(size_t K);
+	std::vector<Path> report_rebuild(
+    size_t K,
+    bool recover_paths = true);
 	std::vector<Path> report_incremental(
 		size_t K, 
 		bool save_pfxt_nodes = false,
@@ -423,7 +424,10 @@ private:
 		bool save_pfxt_nodes = false,
 		bool recover_paths = true);
 
-	void _spur_rebuild(size_t K, PathHeap& heap);
+	void _spur_rebuild(
+    size_t K, 
+    PathHeap& heap,
+    bool recover_paths = true);
 	
 	void _spur_incremental(
 		size_t K, 
@@ -486,7 +490,7 @@ private:
 		mark its left hand side siblings as "pruned", to prevent duplicate spur,
 		and mark its right hand side siblings as "removed"
 	*/
-	void _update_pfxt(Pfxt& pfxt);
+	void _update_pfxt(Pfxt& pfxt, float& max_dc);
 
 	/**
 	@brief propagate costs from the leader downwards to the subtree it leads

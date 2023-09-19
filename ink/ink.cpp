@@ -373,7 +373,9 @@ std::vector<Path> Ink::report_incsfxt(
 	return _extract_paths(_all_paths);
 }
 
-std::vector<Path> Ink::report_rebuild(size_t K) {
+std::vector<Path> Ink::report_rebuild(
+  size_t K,
+  bool recover_paths) {
 	if (K == 0) {
 		return {};
 	}
@@ -394,12 +396,7 @@ std::vector<Path> Ink::report_rebuild(size_t K) {
 	}
 
 	PathHeap heap;
-	auto beg = std::chrono::steady_clock::now();
-	_spur_rebuild(K, heap);	
-	auto end = std::chrono::steady_clock::now();
-	auto elapsed = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	elapsed_time_spur = elapsed;
+	_spur_rebuild(K, heap, recover_paths);	
 	
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -431,18 +428,21 @@ std::vector<Path> Ink::report_incremental(
 		}
 	}
 
+  auto beg = std::chrono::steady_clock::now();
 	_sfxt_cache();
-	auto& sfxt = *_global_sfxt;
-	auto pfxt = _pfxt_cache(sfxt);
+  auto end = std::chrono::steady_clock::now();
+	
+	auto sfxt_update_time = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+  std::cout << "sfxt update time=" << sfxt_update_time << '\n';
+  auto& sfxt = *_global_sfxt;
+  
+  auto pfxt = _pfxt_cache(sfxt);
 	pfxt.nodes = std::move(_pfxt_nodes);
 	pfxt.paths = std::move(_pfxt_paths);
   pfxt.srcs = std::move(_pfxt_srcs);
 
-	auto beg = std::chrono::steady_clock::now();
 	_spur_incremental(K, pfxt, save_pfxt_nodes, use_leaders, recover_paths);	
-	auto end = std::chrono::steady_clock::now();
-	elapsed_time_spur = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
 	// report complete, clear the update list
 	_clear_update_list();	
@@ -621,7 +621,7 @@ void Ink::update_edges_percent(float percent, const std::string& dmp) {
   size_t N = _eptrs.size() * (percent / 100.0f);
   std::cout << percent << "\% of " << _eptrs.size() << " is " << N << '\n';
 
-  std::ofstream ofs(dmp);
+  // std::ofstream ofs(dmp);
   const float offset = 0.35f;
   // NOTE: we have to call insert_edge or else ink won't
   // identify the affected pfxt nodes
@@ -629,7 +629,7 @@ void Ink::update_edges_percent(float percent, const std::string& dmp) {
   // TODO: does this API make sense?
   for (size_t i = 0; i < N; i++) {
     // dump edge name
-    ofs << _eptrs[i]->name() << '\n';   
+    // ofs << _eptrs[i]->name() << '\n';   
     auto ws = _eptrs[i]->weights;
     for (size_t j = 0; j < NUM_WEIGHTS; j++) {
       if (ws[j]) {
@@ -1004,7 +1004,7 @@ Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 	return pfxt;
 }
 
-void Ink::_update_pfxt(Pfxt& pfxt) {
+void Ink::_update_pfxt(Pfxt& pfxt, float& max_dc) {
 
   // reset node markings
   for (auto& n : pfxt.paths) {
@@ -1015,19 +1015,16 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
     n->reset();
   }
 
-	// sort affected pfxt nodes by level (ascending)
 	auto& ap = _affected_pfxtnodes;
 	if (ap.empty()) {
-    std::cout << "no affected pfxt nodes recorded.\n";
 		return;
 	}	
 
-	std::sort(ap.begin(), ap.end(), [](PfxtNode* a, PfxtNode* b) {
-		return a->level < b->level;	
-	});
-
-	std::queue<PfxtNode*> q;
+  std::reverse(ap.begin(), ap.end());
+  
+  std::queue<PfxtNode*> q;
 	auto& sfxt = *_global_sfxt;
+  size_t updates = 0, removes = 0;
 	for (auto p : ap) {
 		if (p->updated || p->removed) {
 			continue;
@@ -1037,6 +1034,7 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
     for (auto s : p->parent->children) {
       q.push(s);
     }
+
 
 		while (!q.empty()) {
 			bool skip{false};
@@ -1049,9 +1047,6 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
       // removed too
       if (node->parent->to_respur) {
         node->removed = true;
-      }
-
-      if (node->removed) {
         skip = true;
       }
 
@@ -1073,7 +1068,7 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 						_respurs.emplace_back(node->parent, std::move(node->parent->pruned));
 					  node->parent->to_respur = true;
           }
-				}
+        }
 			}
 
 			for (auto c : node->children) {
@@ -1091,17 +1086,17 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
 	// and spur each pfxt node with their
 	// corresponding pruned edge/weights
 	for (const auto& r : _respurs) {
-		_spur_pruned(pfxt, *r.node, r.pruned);
-	}
+    _spur_pruned(pfxt, *r.node, r.pruned);
+  }
 
   // validate paths and update max detour cost
   _all_path_costs.clear();
-  auto max_dc = 0.0f;
   for (const auto& n : pfxt.paths) {
     if (!n->removed) {
       _all_path_costs.push_back(n->detour_cost + *sfxt.dist());
-      
-      // if not already spurred, spur here
+
+      // may have detour candidates now
+      // spur this node
       if (n->num_children() == 0) {
         _spur(pfxt, *n);
       }   
@@ -1110,29 +1105,15 @@ void Ink::_update_pfxt(Pfxt& pfxt) {
     }
   }
 
-  // validate the priority queue
-  // TODO: BUG?
-  // NOTE: incremental report seems to be skipping some
-  // costs, the condition in this validation phase is 
-  // probably not right 
-  for (;;) {
-    auto node = pfxt.pop();
-    if (node == nullptr) {
-      break;
-    }
-
-    if (node->removed) {
-      continue;
-    }
-		
-    _all_path_costs.push_back(node->detour_cost + *sfxt.dist());
-    _spur(pfxt, *node);
-
-    if (node->detour_cost >= max_dc) {
-      break;
-    }
-  }
-
+  // TODO: bug
+  // why? after paths validation, we almost have the right costs
+  // but spur_incremental then seems to spur a lot of redundant nodes
+  //std::ofstream ofs("allcosts-dmp");
+  //std::sort(_all_path_costs.begin(), _all_path_costs.end());
+  //for (auto& c : _all_path_costs) {
+  //  ofs << c << '\n';
+  //}
+  
 }
 
 //void Ink::_identify_leaders(
@@ -1334,26 +1315,24 @@ void Ink::_spur_incremental(
 	bool save_pfxt_nodes,
 	bool use_leaders,
 	bool recover_paths) {
-	
-	_update_pfxt(pfxt);
 
-  // pfxt is in a valid state now
-  // if we already have enough paths (or costs)
-  // we can stop here
-  std::cout << "after update, all paths = " << _all_path_costs.size() << '\n';
-  if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
-		return;
-	}
-
+  float max_dc = 0.0f;  
 	auto& sfxt = *_global_sfxt;
+	
+  auto beg = std::chrono::steady_clock::now();
+  _update_pfxt(pfxt, max_dc);
+
+  bool valid{false};
 	while (!(pfxt.num_nodes() == 0)) {
-		auto node = pfxt.pop();
-		// no more paths to generate
+		auto node = pfxt.pop();  
+    
+    // no more paths to generate
 		if (node == nullptr) {
 			break;
 		}
 
-		if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
+		if (valid && 
+        (_all_paths.size() >= K || _all_path_costs.size() >= K)) {
 			break;
 		}
 
@@ -1370,12 +1349,21 @@ void Ink::_spur_incremental(
 		}
 		else {
 			_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
-		}
+    }
 
 		// expand search space
 		// find children (more detours) for node
 		_spur(pfxt, *node);
+
+    if (!valid && node->detour_cost >= max_dc) {
+      std::cout << "costs.size=" << _all_path_costs.size() << '\n';
+      valid = true;
+    }
 	}
+  auto end = std::chrono::steady_clock::now();
+	auto sploop_time = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+  std::cout << "spur loop time=" << sploop_time << '\n';
 
 	if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
@@ -1386,12 +1374,18 @@ void Ink::_spur_incremental(
 } 
 
 
-void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
-	_sfxt_rebuild();
+void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
+  auto beg = std::chrono::steady_clock::now();
+  _sfxt_rebuild();
+  auto end = std::chrono::steady_clock::now();
+  auto sfxt_build_time =  
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+  std::cout << "sfxt rebuild time=" << sfxt_build_time << '\n';
+
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 
-	auto beg = std::chrono::steady_clock::now();
+	beg = std::chrono::steady_clock::now();
 	while (!(pfxt.num_nodes() == 0)) {
 		auto node = pfxt.pop();
 		// no more paths to generate
@@ -1399,27 +1393,33 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap) {
 			break;
 		}		
 
-		if (heap.size() >= K) {
+		if (heap.size() >= K || _all_path_costs.size() >= K) {
 			break;
 		}
 
 		// recover the complete path
-		auto path = std::make_unique<Path>(0.0f, nullptr);
-		_recover_path(*path, sfxt, node, sfxt.T);
+    if (recover_paths) { 
+      auto path = std::make_unique<Path>(0.0f, nullptr);
+      _recover_path(*path, sfxt, node, sfxt.T);
 
-		path->weight = path->back().dist;
-		if (path->size() > 1) {
-			heap.push(std::move(path));
-			heap.fit(K);
-		}
+      path->weight = path->back().dist;
+      if (path->size() > 1) {
+        heap.push(std::move(path));
+        heap.fit(K);
+      }
+    }
+    else {
+			_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
+    }
+    
 
 		// expand search space
 		_spur(pfxt, *node);
 	}
-	auto end = std::chrono::steady_clock::now();
-	auto elapsed = 
+	end = std::chrono::steady_clock::now();
+	auto sploop_time = 
 		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-	_elapsed_time_sploop += elapsed;
+  std::cout << "spur loop time=" << sploop_time << '\n';
 } 
 
 void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) {
@@ -1723,7 +1723,6 @@ size_t PfxtNode::num_children() const {
 void PfxtNode::reset() {
   updated = false;
   removed = false;
-  in_queue = false;
   to_respur = false;
   pruned.clear(); 
 }
@@ -1789,6 +1788,9 @@ PfxtNode* Pfxt::pop() {
 	// now it's located in the back
 	paths.push_back(std::move(nodes.back()));
 	nodes.pop_back();
+
+  // toggle is_path to true
+  paths.back()->is_path = true;
 
 	// and return an observer poiner to this node object
 	return paths.back().get();
