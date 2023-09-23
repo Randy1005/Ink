@@ -1020,11 +1020,12 @@ void Ink::_update_pfxt(Pfxt& pfxt, float& max_dc) {
 		return;
 	}	
 
-  std::reverse(ap.begin(), ap.end());
+  std::sort(ap.begin(), ap.end(), [](auto a, auto b) {
+    return a->level < b->level;
+  });
   
   std::queue<PfxtNode*> q;
 	auto& sfxt = *_global_sfxt;
-  size_t updates = 0, removes = 0;
 	for (auto p : ap) {
 		if (p->updated || p->removed) {
 			continue;
