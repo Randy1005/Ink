@@ -16,13 +16,13 @@ int main(int argc, char* argv[]) {
 	std::cout << "num_paths = " << num_paths << '\n';
 	std::cout << "report_mode = ";
 	if (mode == 0) {
-		std::cout << "original\n";
+		std::cout << "incsfxt\n";
 	}
 	else if (mode == 1) {
-		std::cout << "incpfxt\n";
+		std::cout << "incsfxt + incpfxt\n";
 	}
   else if (mode == 2) {
-    std::cout << "rebuild-all\n";
+    std::cout << "full\n";
   }
   else {
     std::cout << "percentage-update\n";
@@ -53,12 +53,12 @@ int main(int argc, char* argv[]) {
 	}
 	else if (mode == 1) {
     auto costs_old = ink.get_path_costs();
-		ink.dump_profile(std::cout, true);
+		//ink.dump_profile(std::cout, true);
 	  	
     // report again with incremental pfxt
 		// disable save_pfxt_nodes
 		ink.report_incremental(num_paths, false, false, false);
-		ink.dump_profile(std::cout, true);
+		//ink.dump_profile(std::cout, true);
 		
     std::ofstream ofs(argv[2]);
 		// output costs to a file
@@ -91,53 +91,36 @@ int main(int argc, char* argv[]) {
     // 2 instances of Ink
     ink::Ink i1, i2;
     
-    std::string i1_out = std::string(argv[2]) + "-orig";
-    std::string i2_out = std::string(argv[2]) + "-incpfxt";
+    std::string i1_out = std::string(argv[2]) + "-full";
+    std::string i2_out = std::string(argv[2]) + "-inc";
 	  i1.read_ops(argv[1], i1_out);
 	  i2.read_ops(argv[1], i2_out);
 
     auto perc = std::stof(argv[5]);
 
     i1.report_incsfxt(num_paths, true, false);
+    i1.update_edges_percent(perc); 
+		i1.report_rebuild(num_paths, false);
     auto c1 = i1.get_path_costs();
-    i1.update_edges_percent(perc, "i1-dmp"); 
-		i1.report_incsfxt(num_paths, false, false);
-		auto spur_time_i1 = i1.elapsed_time_spur;
 
     i2.report_incsfxt(num_paths, true, false);  
-    i2.update_edges_percent(perc, "i2-dmp");  
+    i2.update_edges_percent(perc);  
 		i2.report_incremental(num_paths, false, false, false);
-		auto spur_time_i2 = i2.elapsed_time_spur;
+    auto c2 = i2.get_path_costs();
     
-    std::ofstream ofs1(i1_out);
-    std::ofstream ofs2(i2_out);
-		// output costs to a file
-    auto i1_costs = i1.get_path_costs();
-    size_t diff = 0;
-    for (size_t i = 0; i < num_paths; i++) {
-      if (i > i1_costs.size() - 1) {
-        break;
-      }
-			ofs1 << i1_costs[i] << '\n';
-
-      if (c1[i] != i1_costs[i]) {
-        diff++;
-      }
-		}
-    
-    auto i2_costs = i2.get_path_costs();
-    for (size_t i = 0; i < num_paths; i++) {
-      if (i > i2_costs.size() - 1) {
-        break;
-      }
-			ofs2 << i2_costs[i] << '\n';
-		}
-
-    std::cout << "orig spur time=" << spur_time_i1 << '\n';
-    std::cout << "incpfxt spur time=" << spur_time_i2 << '\n';
-    auto speedup = spur_time_i1 / static_cast<float>(spur_time_i2);
+    std::cout << "full sfxt + pfxt time=" << i1.full_time << '\n';
+    std::cout << "inc sfxt + pfxt time=" << i2.incremental_time << '\n';
+    auto speedup = i1.full_time / static_cast<float>(i2.incremental_time);
     std::cout << "speedup=" << speedup << '\n';
-    std::cout << "diff=" << diff << '\n';
+  
+    std::ofstream ofs1(i1_out), ofs2(i2_out);
+    for (size_t i = 0; i < c1.size(); i++) {
+      ofs1 << c1[i] << '\n';
+    }
+  
+    for (size_t i = 0; i < c2.size(); i++) {
+      ofs2 << c2[i] << '\n';
+    }
   }
 	
 	return 0;

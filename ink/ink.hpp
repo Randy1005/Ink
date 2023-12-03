@@ -1,7 +1,6 @@
 #pragma once
 // #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
-
 #define NUM_WEIGHTS 8
 
 namespace ink {
@@ -220,6 +219,7 @@ struct PfxtNode {
 
 	bool updated{false};
 	bool removed{false};
+  bool spurred{false};
 	bool to_respur{false};
   bool is_path{false};
 };
@@ -251,10 +251,23 @@ struct Pfxt {
 		Edge* e,
 		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l);
+  
+  PfxtNode* push_inc(
+		float c,
+    float dc,
+		size_t f,
+		size_t t,
+		Edge* e,
+		PfxtNode* p,
+		std::optional<std::pair<size_t, size_t>> l,
+    size_t write_idx);
 	
+
 	PfxtNode* pop();
 	
 	PfxtNode* top() const;	
+  
+  void heapify();
 
 	const Sfxt& sfxt;
 	
@@ -302,7 +315,10 @@ public:
 
 	void remove_edge(const std::string& from, const std::string& to);
 
-	std::vector<Path> report(size_t K);
+  void insert_buffer(const std::string& name, Edge& e); 
+  void remove_buffer(const std::string& name);	
+    
+  std::vector<Path> report(size_t K);
 
 	std::vector<Path> report_incsfxt(
 		size_t K, 
@@ -317,6 +333,10 @@ public:
 		bool use_leaders = false,
 		bool recover_paths = true);
 	
+	std::vector<Path> report_incremental_v2(
+		size_t K, 
+		bool save_pfxt_nodes = false,
+		bool recover_paths = true);
 
 	void dump(std::ostream& os) const;
 
@@ -342,7 +362,13 @@ public:
   /**
   @brief update the given percentage of edges
   */
-  void update_edges_percent(float percent, const std::string& dmp);
+  void update_edges_percent(float percent);
+
+  /**
+  @brief modify fanin and fanouts of a vertex 
+  (for multi-iteration experiment)
+  */
+  void modify_vertex(size_t vid, float offset);
 
 
 	inline size_t num_verts() const {
@@ -358,6 +384,15 @@ public:
 
 
 	size_t elapsed_time_spur{0};
+
+  size_t full_time{0};
+  size_t incremental_time{0};
+  size_t sfxt_update_time{0};
+  size_t pfxt_expansion_time{0};
+	
+  // random device (for picking random vertices to updated)
+	std::random_device rdev;
+	std::mt19937 rng{rdev()};
 
 
 private:
@@ -436,6 +471,16 @@ private:
 		bool use_leaders = false,
 		bool recover_paths = true);
 
+  void _mark_pfxt_nodes(Pfxt& pfxt);
+
+
+  void _spur_incremental_v2(
+    size_t K,
+    Pfxt& pfxt,
+		bool save_pfxt_nodes = false,
+    bool recover_paths = true);
+  
+
 	/**
 	@brief Spur from the path. Scan the current critical path
 	and spur along the path to generate other candidates
@@ -448,6 +493,19 @@ private:
 	given a prefix node, until we reach the suffix tree's super target
 	*/
 	void _spur(Pfxt& pfxt, PfxtNode& pfx);
+	
+  
+	/**
+	@brief Spur along the path to generate more pfxt node children, 
+	given a prefix node, until we reach the suffix tree's super target
+	(but not starting from pfx.to, we can start from a given vertex)
+  */
+  void _spur_midway(
+    Pfxt& pfxt, 
+    PfxtNode& pfx, 
+    size_t start,
+    int skip_spurs, 
+    size_t write_idx);
 	
 	/**
 	@brief Spur along the path to generate more pfxt node children, 
@@ -522,6 +580,10 @@ private:
 		std::array<std::optional<float>, 8>&& ws);
 	
 	void _remove_edge(Edge& e);
+
+
+
+
 
 	/**
 	@brief encode an edge with different weight selections
@@ -650,10 +712,6 @@ private:
 	// num of affected nodes
 	size_t _num_affected_nodes{0};
 	
-	// random device (for picking random vertices to updated)
-	std::random_device _rdev;
-	std::mt19937 _rng{_rdev()};
-
 	// containers for all path costs
 	std::vector<float> _all_path_costs;
 	

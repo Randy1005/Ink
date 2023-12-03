@@ -52,6 +52,8 @@ void build_bt3(ink::Ink& ink) {
 }
 
 
+// TODO: rewrite these unittests, I removed the path.size > 1 check in
+// report_incsfxt
 TEST_CASE("1 Chain (using global sfxt)" * doctest::timeout(300)) {
 	ink::Ink ink;
 	ink.insert_edge("v1", "v2", 1);

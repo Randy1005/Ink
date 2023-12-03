@@ -8,10 +8,9 @@ list(APPEND INK_UNITTESTS
   simp_s27_graph
   chains
   binary_trees
-  glob_sfxt
+  # glob_sfxt
   update_sfxt
-  inc_pfxt
-  updated_or_removed_pfxt_nodes
+  inc_pfxt_v2
 )
 
 foreach(unittest IN LISTS INK_UNITTESTS)

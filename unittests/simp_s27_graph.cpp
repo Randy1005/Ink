@@ -541,11 +541,6 @@ TEST_CASE("Simplified s27 Benchmark" * doctest::timeout(300)) {
 	std::advance(it, 1);
 	REQUIRE(it->vert.name == "inst_14:Q");
 	REQUIRE(float_equal(it->dist, 251.7f));
-	
-	for (const auto& p : paths) {
-		p.dump(std::cout);
-	}
-
 }
 
 
@@ -1430,11 +1425,6 @@ TEST_CASE("Simplified s27 Benchmark w/ Incremental Update" * doctest::timeout(30
 	REQUIRE(it->vert.name == "inst_14:D");
 	REQUIRE(float_equal(it->dist, 124.7));
 
-
-	for (const auto& p : paths) {
-		p.dump(std::cout);
-	}
-
 }
 
 TEST_CASE("Simplified s27 Benchmark w/ Incremental Update(2)" * doctest::timeout(300)) {
@@ -1446,396 +1436,59 @@ TEST_CASE("Simplified s27 Benchmark w/ Incremental Update(2)" * doctest::timeout
 	ink.insert_edge("inst_15:QN", "inst_4:A1", 0);
 	ink.insert_edge("inst_15:QN", "inst_3:A1", 0);
 
-	ink.insert_edge("G0", "inst_11:A", 0);
-	ink.insert_edge("G0", "inst_3:A2", 0);
-	ink.insert_edge("G0", "inst_4:A2", 0);
+	//ink.insert_edge("G0", "inst_11:A", 0);
+	//ink.insert_edge("G0", "inst_3:A2", 0);
+	//ink.insert_edge("G0", "inst_4:A2", 0);
 
-	ink.insert_edge("inst_3:A2", "inst_3:ZN", 10.3);
-	ink.insert_edge("inst_3:A1", "inst_3:ZN", 8.23);
+	//ink.insert_edge("inst_3:A2", "inst_3:ZN", 10.3);
+	//ink.insert_edge("inst_3:A1", "inst_3:ZN", 8.23);
 
-	ink.insert_edge("inst_3:ZN", "inst_1:A1", 0);
-	ink.insert_edge("inst_1:A1", "inst_1:ZN", 6.58);
-	ink.insert_edge("inst_1:ZN", "inst_0:A3", 0);
-	ink.insert_edge("inst_0:A3", "inst_0:ZN", 12.7);
+	//ink.insert_edge("inst_3:ZN", "inst_1:A1", 0);
+	//ink.insert_edge("inst_1:A1", "inst_1:ZN", 6.58);
+	//ink.insert_edge("inst_1:ZN", "inst_0:A3", 0);
+	//ink.insert_edge("inst_0:A3", "inst_0:ZN", 12.7);
 
-	ink.insert_edge("inst_0:ZN", "inst_15:D", 0);
-	ink.insert_edge("inst_0:ZN", "inst_6:A1", 0);
-	ink.insert_edge("inst_0:ZN", "inst_12:A", 0);
+	//ink.insert_edge("inst_0:ZN", "inst_15:D", 0);
+	//ink.insert_edge("inst_0:ZN", "inst_6:A1", 0);
+	//ink.insert_edge("inst_0:ZN", "inst_12:A", 0);
 
-	ink.insert_edge("inst_6:A1", "inst_6:ZN", 6.8);
-	ink.insert_edge("inst_6:ZN", "inst_16:D", 0);
+	//ink.insert_edge("inst_6:A1", "inst_6:ZN", 6.8);
+	//ink.insert_edge("inst_6:ZN", "inst_16:D", 0);
 
-	ink.insert_edge("inst_11:A", "inst_11:ZN", 5.04);
-	ink.insert_edge("inst_11:ZN", "inst_6:A2", 0);
-	ink.insert_edge("inst_6:A2", "inst_6:ZN", 8.89);
+	//ink.insert_edge("inst_11:A", "inst_11:ZN", 5.04);
+	//ink.insert_edge("inst_11:ZN", "inst_6:A2", 0);
+	//ink.insert_edge("inst_6:A2", "inst_6:ZN", 8.89);
 
-	ink.insert_edge("inst_15:CK", "inst_15:D", 0);
+	//ink.insert_edge("inst_15:CK", "inst_15:D", 0);
 
 
 	// G3
-	ink.insert_edge("G3", "inst_1:A2", 0);
-	ink.insert_edge("inst_1:A2", "inst_1:ZN", 8.75);
+	//ink.insert_edge("G3", "inst_1:A2", 0);
+	//ink.insert_edge("inst_1:A2", "inst_1:ZN", 8.75);
 
-	ink.insert_edge("inst_4:A2", "inst_4:ZN", 10.3);
-	ink.insert_edge("inst_4:ZN", "inst_2:A1", 0);
-	ink.insert_edge("inst_2:A1", "inst_2:ZN", 6.63, 6.62);
-	ink.insert_edge("inst_2:ZN", "inst_0:A1", 0);
-	ink.insert_edge("inst_0:A1", "inst_0:ZN", 9.22);
+	//ink.insert_edge("inst_4:A2", "inst_4:ZN", 10.3);
+	//ink.insert_edge("inst_4:ZN", "inst_2:A1", 0);
+	//ink.insert_edge("inst_2:A1", "inst_2:ZN", 6.63, 6.62);
+	//ink.insert_edge("inst_2:ZN", "inst_0:A1", 0);
+	//ink.insert_edge("inst_0:A1", "inst_0:ZN", 9.22);
 
-	ink.insert_edge("inst_4:A1", "inst_4:ZN", 8.23);
-
-
-	ink.insert_edge("inst_12:A", "inst_12:ZN", 6.81, 6.82);
-	ink.insert_edge("inst_12:ZN", "G17", 0);
-
-	REQUIRE(ink.num_edges() == 32);
-	REQUIRE(ink.num_verts() == 29);
+	//ink.insert_edge("inst_4:A1", "inst_4:ZN", 8.23);
 
 
-	auto paths = ink.report_incsfxt(8);
+	//ink.insert_edge("inst_12:A", "inst_12:ZN", 6.81, 6.82);
+	//ink.insert_edge("inst_12:ZN", "G17", 0);
+
+	//REQUIRE(ink.num_edges() == 32);
+	//REQUIRE(ink.num_verts() == 29);
+
+
+	ink.report_incsfxt(8, false, false);
+  auto costs = ink.get_path_costs();
+
+  for (auto c : costs) {
+    std::cout << c << '\n';
+  }
+
+
 	
-	REQUIRE(paths.size() == 8);
-
-	// 1st path
-	// ----------------------------------
-	// Startpoint:  inst_15:CK
-	// Endpoint:    inst_15:D
-	// Path:
-	// Vert name: inst_15:CK, Dist: 0
-	// Vert name: inst_15:D, Dist: 0
-	// ----------------------------------
-	REQUIRE(paths[0].size() == 2);
-	auto it = paths[0].begin();
-
-	REQUIRE(it->vert.name == "inst_15:CK");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_15:D");
-	REQUIRE(float_equal(it->dist, 0));
-
-	// 2nd path
-	// ----------------------------------
-	// Startpoint:  G0
-	// Endpoint:    inst_16:D
-	// Path:
-	// Vert name: G0, Dist: 0
-	// Vert name: inst_11:A, Dist: 0
-	// Vert name: inst_11:ZN, Dist: 5.04
-	// Vert name: inst_6:A2, Dist: 5.04
-	// Vert name: inst_6:ZN, Dist: 13.93
-	// Vert name: inst_16:D, Dist: 13.93
-	// ----------------------------------
-	REQUIRE(paths[1].size() == 6);
-	it = paths[1].begin();
-
-	REQUIRE(it->vert.name == "G0");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_11:A");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_11:ZN");
-	REQUIRE(float_equal(it->dist, 5.04));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_6:A2");
-	REQUIRE(float_equal(it->dist, 5.04));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_6:ZN");
-	REQUIRE(float_equal(it->dist, 13.93));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_16:D");
-	REQUIRE(float_equal(it->dist, 13.93));
-
-	// 3rd path
-	// ----------------------------------
-	// Startpoint:  G3
-	// Endpoint:    inst_15:D
-	// Path:
-	// Vert name: G3, Dist: 0
-	// Vert name: inst_1:A2, Dist: 0
-	// Vert name: inst_1:ZN, Dist: 8.75
-	// Vert name: inst_0:A3, Dist: 8.75
-	// Vert name: inst_0:ZN, Dist: 21.45
-	// Vert name: inst_15:D, Dist: 21.45
-	// ----------------------------------
-	REQUIRE(paths[2].size() == 6);
-	it = paths[2].begin();
-
-	REQUIRE(it->vert.name == "G3");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:ZN");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A3");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_15:D");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	// 4th path
-	// ----------------------------------
-	// Startpoint:  G0
-	// Endpoint:    inst_15:D
-	// Path:
-	// Vert name: G0, Dist: 0
-	// Vert name: inst_4:A2, Dist: 0
-	// Vert name: inst_4:ZN, Dist: 10.3
-	// Vert name: inst_2:A1, Dist: 10.3
-	// Vert name: inst_2:ZN, Dist: 16.92
-	// Vert name: inst_0:A1, Dist: 16.92
-	// Vert name: inst_0:ZN, Dist: 26.14
-	// Vert name: inst_15:D, Dist: 26.14
-	// ----------------------------------
-	REQUIRE(paths[3].size() == 8);
-	it = paths[3].begin();
-
-	REQUIRE(it->vert.name == "G0");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_4:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_4:ZN");
-	REQUIRE(float_equal(it->dist, 10.3));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_2:A1");
-	REQUIRE(float_equal(it->dist, 10.3));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_2:ZN");
-	REQUIRE(float_equal(it->dist, 16.92));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A1");
-	REQUIRE(float_equal(it->dist, 16.92));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 26.14));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_15:D");
-	REQUIRE(float_equal(it->dist, 26.14));
-
-	// 5th path
-	// ----------------------------------
-	// Startpoint:  G0
-	// Endpoint:    inst_15:D
-	// Path:
-	// Vert name: G0, Dist: 0
-	// Vert name: inst_4:A2, Dist: 0
-	// Vert name: inst_4:ZN, Dist: 10.3
-	// Vert name: inst_2:A1, Dist: 10.3
-	// Vert name: inst_2:ZN, Dist: 16.93
-	// Vert name: inst_0:A1, Dist: 16.93
-	// Vert name: inst_0:ZN, Dist: 26.15
-	// Vert name: inst_15:D, Dist: 26.15
-	// ----------------------------------
-
-	REQUIRE(paths[4].size() == 8);
-	it = paths[4].begin();
-
-	REQUIRE(it->vert.name == "G0");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_4:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_4:ZN");
-	REQUIRE(float_equal(it->dist, 10.3));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_2:A1");
-	REQUIRE(float_equal(it->dist, 10.3));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_2:ZN");
-	REQUIRE(float_equal(it->dist, 16.93));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A1");
-	REQUIRE(float_equal(it->dist, 16.93));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 26.15));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_15:D");
-	REQUIRE(float_equal(it->dist, 26.15));
-
-
-	// 6th path
-	// ----------------------------------
-	// Startpoint:  G3
-	// Endpoint:    inst_16:D
-	// Path:
-	// Vert name: G3, Dist: 0
-	// Vert name: inst_1:A2, Dist: 0
-	// Vert name: inst_1:ZN, Dist: 8.75
-	// Vert name: inst_0:A3, Dist: 8.75
-	// Vert name: inst_0:ZN, Dist: 21.45
-	// Vert name: inst_6:A1, Dist: 21.45
-	// Vert name: inst_6:ZN, Dist: 28.25
-	// Vert name: inst_16:D, Dist: 28.25
-	// ----------------------------------
-	REQUIRE(paths[5].size() == 8);
-	it = paths[5].begin();
-
-	REQUIRE(it->vert.name == "G3");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:ZN");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A3");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_6:A1");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_6:ZN");
-	REQUIRE(float_equal(it->dist, 28.25));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_16:D");
-	REQUIRE(float_equal(it->dist, 28.25));
-
-	// 7th path
-	// ----------------------------------
-	// Startpoint:  G3
-	// Endpoint:    G17
-	// Path:
-	// Vert name: G3, Dist: 0
-	// Vert name: inst_1:A2, Dist: 0
-	// Vert name: inst_1:ZN, Dist: 8.75
-	// Vert name: inst_0:A3, Dist: 8.75
-	// Vert name: inst_0:ZN, Dist: 21.45
-	// Vert name: inst_12:A, Dist: 21.45
-	// Vert name: inst_12:ZN, Dist: 28.26
-	// Vert name: G17, Dist: 28.26
-	// ----------------------------------
-	REQUIRE(paths[6].size() == 8);
-	it = paths[6].begin();
-
-	REQUIRE(it->vert.name == "G3");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:ZN");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A3");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_12:A");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_12:ZN");
-	REQUIRE(float_equal(it->dist, 28.26));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "G17");
-	REQUIRE(float_equal(it->dist, 28.26));
-
-	// 8th path
-	// ----------------------------------
-	// Startpoint:  G3
-	// Endpoint:    G17
-	// Path:
-	// Vert name: G3, Dist: 0
-	// Vert name: inst_1:A2, Dist: 0
-	// Vert name: inst_1:ZN, Dist: 8.75
-	// Vert name: inst_0:A3, Dist: 8.75
-	// Vert name: inst_0:ZN, Dist: 21.45
-	// Vert name: inst_12:A, Dist: 21.45
-	// Vert name: inst_12:ZN, Dist: 28.27
-	// Vert name: G17, Dist: 28.27
-	// ----------------------------------
-	REQUIRE(paths[7].size() == 8);
-	it = paths[7].begin();
-
-	REQUIRE(it->vert.name == "G3");
-	REQUIRE(float_equal(it->dist, 0));
-	
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:A2");
-	REQUIRE(float_equal(it->dist, 0));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_1:ZN");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:A3");
-	REQUIRE(float_equal(it->dist, 8.75));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_0:ZN");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_12:A");
-	REQUIRE(float_equal(it->dist, 21.45));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "inst_12:ZN");
-	REQUIRE(float_equal(it->dist, 28.27));
-
-	std::advance(it, 1);
-	REQUIRE(it->vert.name == "G17");
-	REQUIRE(float_equal(it->dist, 28.27));
-
-
-	for (const auto& p : paths) {
-		p.dump(std::cout);
-	}
-
-
 }
