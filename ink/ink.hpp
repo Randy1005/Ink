@@ -57,6 +57,12 @@ struct Vert {
 	// is already marked as to be updated
 	// we don't want duplicates in the update list
 	bool is_in_update_list{false};
+
+  // only for buffer type vertices
+  // NOTE: they always have only one fanin and one fanout?
+  std::string f_name;
+  std::string t_name;
+
 };
 
 
@@ -312,6 +318,7 @@ public:
 		const std::optional<float> w7 = std::nullopt);
 
 	Edge& get_edge(const std::string& from, const std::string& to);
+  Vert& get_vertex(const std::string& name);
 
 	void remove_edge(const std::string& from, const std::string& to);
 

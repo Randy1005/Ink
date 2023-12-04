@@ -133,7 +133,12 @@ void Ink::remove_vertex(const std::string& name) {
 	auto& v = itr->second;
 
 	for (auto e : v.fanin) {
-		// record each of e's fanin vertex
+		for (auto n : e->dep_nodes) {
+      n->edge = nullptr;
+    }
+    e->dep_nodes.clear();
+    
+    // record each of e's fanin vertex
 		// they need to be re-relaxed during 
 		// incrmental report
 		if (!_vptrs[e->from.id]->is_in_update_list && _global_sfxt) {
@@ -150,7 +155,12 @@ void Ink::remove_vertex(const std::string& name) {
 		_edges.erase(*e->satellite);
 	}
 	for (auto e : v.fanout) {
-		// record each of e's fanout vertex
+		for (auto n : e->dep_nodes) {
+      n->edge = nullptr;
+    }
+    e->dep_nodes.clear();
+		
+    // record each of e's fanout vertex
 		// they need to be re-relaxed during 
 		// incrmental report
 		if (!_vptrs[e->to.id]->is_in_update_list && _global_sfxt) {
@@ -270,14 +280,22 @@ Edge& Ink::insert_edge(
 	}
 }
 
+// TODO: we may wanna use std::nullopt when an edge or vertex
+// doesn't exist
 Edge& Ink::get_edge(const std::string& from, const std::string& to) {
 	const std::string ename = from + "->" + to;
 	auto itr = _name2eit.find(ename);
 	return *itr->second;
 }
 
+Vert& Ink::get_vertex(const std::string& name) {
+	auto itr = _name2v.find(name);
+	return itr->second;
+}
+
+
+
 void Ink::remove_edge(const std::string& from, const std::string& to) {
-  
 	const std::string ename = from + "->" + to;
 	auto itr = _name2eit.find(ename);
 	
@@ -302,8 +320,8 @@ void Ink::remove_edge(const std::string& from, const std::string& to) {
 
 void Ink::insert_buffer(const std::string& name, Edge& e) {
   // cache the vertices names and edge weights
-  auto u = e.from.name;
-  auto v = e.to.name;
+  auto uname = e.from.name;
+  auto vname = e.to.name;
   auto ws = e.weights;
 
   // simulate the buffering effect
@@ -315,18 +333,33 @@ void Ink::insert_buffer(const std::string& name, Edge& e) {
   }
 
   // remove e
-  remove_edge(u, v);
+  remove_edge(uname, vname);
 
   // add an edge directed from u to buffer
-  insert_edge(u, name, 
+  auto& e_u2b = insert_edge(uname, name, 
     ws[0], ws[1], ws[2], ws[3], ws[4], ws[5], ws[6], ws[7]); 
-  
+    
+  e_u2b.to.f_name = uname; 
+  e_u2b.to.t_name = vname;
+
   // add an edge directed from buffer to v
-  insert_edge(name, v, 
+  insert_edge(name, vname, 
     ws[0], ws[1], ws[2], ws[3], ws[4], ws[5], ws[6], ws[7]); 
 } 
 
 void Ink::remove_buffer(const std::string& name) {
+  auto& vert = get_vertex(name);
+  auto& e_f = get_edge(vert.f_name, name);
+  auto& e_t = get_edge(name, vert.t_name);
+  auto ws = std::move(e_f.weights);
+  for (auto& w : ws) {
+    *w *= 2.5f;
+  }
+
+  // undo buffering, reconnect buffered edge
+  insert_edge(vert.f_name, vert.t_name, 
+    ws[0], ws[1], ws[2], ws[3], ws[4], ws[5], ws[6], ws[7]); 
+
   remove_vertex(name);
 }  
 
@@ -1292,12 +1325,6 @@ void Ink::_spur_incremental(
 } 
 
 void Ink::_mark_pfxt_nodes(Pfxt& pfxt) { 
-  // get pfxt srcs
-  // TODO: 
-  // start from src is simpler
-  // figure out how to "not" start from src later
-  
-  // TODO: remember to update "node.children" somewhere
   std::queue<PfxtNode*> q;
   for (auto s : pfxt.srcs) {
     for (auto c : s->children) {
@@ -1355,7 +1382,7 @@ void Ink::_mark_pfxt_nodes(Pfxt& pfxt) {
         auto dc = *sfxt.dists[v] + w - *sfxt.dists[u];
         node->detour_cost = dc + p->detour_cost; 
         
-        // finished updating a non-sfxt edge, decrement spur_cnt 
+        // finished updating a non-sfxt edge, decrement to_spurs 
         // if to_spurs == 0, spur_begin can advance to its successor
         to_spurs--;
         while (to_spurs == 0 && sfxt.successors[spur_begin]) {
@@ -1371,7 +1398,21 @@ void Ink::_mark_pfxt_nodes(Pfxt& pfxt) {
               }
             }
           } 
-        }   
+        }  
+
+        // if I'm the last child of this parent
+        // but to_spur is still non-zero, that means my
+        // parent has undiscovered children 
+        // spur my parent here
+        if (updates_per_parent == p->num_children()) {
+          _spur_midway(
+            pfxt, 
+            *p, 
+            spur_begin, 
+            total_spurs - to_spurs, 
+            updates_per_parent);
+        }
+
       }
       // node.edge is sfxt edge or null edge
       else {
@@ -1391,7 +1432,6 @@ void Ink::_mark_pfxt_nodes(Pfxt& pfxt) {
       q.push(c); 
     }
   }
-
 }
 
 
@@ -1431,20 +1471,30 @@ void Ink::_spur_incremental_v2(
       if (node->num_children() == 0) {
         _spur(pfxt, *n_obs); 
       }
+
+      // clear spurred flag for next iteration
+      if (node->spurred) {
+        node->spurred = false;
+      }
     }
+
   }
 
-  // TODO: cleanup and re-heapify pfxt.nodes
-  // TODO: should we cleanup owner storages between adjacent iterations
-  //for (size_t i = 0; i < pfxt.nodes.size(); i++) {
-  //  auto& node = pfxt.nodes[i];
-  //  if (node->removed) {
-  //    node = std::move(pfxt.nodes.back());
-  //  }
-  //  else {
-  //    i++;
-  //  }
-  //}
+  for (size_t i = 0; i < pfxt.nodes.size(); i++) {
+    auto& node = pfxt.nodes[i];
+    if (node->removed) {
+      node = std::move(pfxt.nodes.back());
+      pfxt.nodes.pop_back();
+    }
+    else {
+      // clear spurred flag for next iteration
+      if (node->spurred) {
+        node->spurred = false;
+      }
+      i++;
+    }
+    
+  }
   
   pfxt.heapify();
 
