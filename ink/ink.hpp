@@ -16,7 +16,6 @@ struct Point;
 struct Path;
 class PathHeap;
 
-
 /**
 @brief Vertex
 */
@@ -351,32 +350,22 @@ public:
 
 	void dump_pfxt_nodes(std::ostream& os) const;
 
-	void dump_profile(std::ostream& os, bool reset = false);
+	void dump_profile(std::ostream& os);
 
-	/**
-	@brief outputs the percentage of difference between 2 path weight vectors
-	*/
+  void dump_graph_dot(std::ostream& os) const;
+
 	float vec_diff(
 		const std::vector<Path>& ps1, 
 		const std::vector<Path>& ps2,
 		std::vector<float>& diff);
 
-	/**
-	@brief get the path costs
-	*/
 	std::vector<float> get_path_costs();
 
-  /**
-  @brief update the given percentage of edges
-  */
   void update_edges_percent(float percent);
 
-  /**
-  @brief modify fanin and fanouts of a vertex 
-  (for multi-iteration experiment)
-  */
   void modify_vertex(size_t vid, float offset);
 
+  std::vector<std::reference_wrapper<Edge>> find_chain_edges();
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -386,9 +375,7 @@ public:
 		return _edges.size();
 	}
 
-	// records if a link (edge, w_sel pair) became the sfxt's link
 	std::vector<std::array<bool, NUM_WEIGHTS>> belongs_to_sfxt;
-
 
 	size_t elapsed_time_spur{0};
 
@@ -752,6 +739,13 @@ private:
 	size_t _max_nodes{0};
 	size_t _sort_cnt{0};
 	size_t _leader_cnt;
+
+  // runtime
+  size_t _rt_marking{0};
+  size_t _rt_cleanup_paths{0};
+  size_t _rt_cleanup_nodes{0};
+  size_t _rt_spur{0};
+
 };
 
 /**

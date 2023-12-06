@@ -426,16 +426,13 @@ std::vector<Path> Ink::report_incsfxt(
 		}
 	}
 
+  pfxt_expansion_time = 0;
+
 	PathHeap heap;
 	_sfxt_cache();
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
-
-	auto beg = std::chrono::steady_clock::now();
 	_spur_incsfxt(K, heap, pfxt, save_pfxt_nodes, recover_paths);	
-	auto end = std::chrono::steady_clock::now();
-	elapsed_time_spur = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 	
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -635,30 +632,35 @@ void Ink::dump_pfxt_nodes(std::ostream& os) const {
 }
 
 
-void Ink::dump_profile(std::ostream& os, bool reset) {
-	os << "======== Profile ========\n";
-	os << "spur time: " << elapsed_time_spur << " ns ("
-		 << elapsed_time_spur * 1e-9 << " sec)\n";
-	if (reset) {
-		elapsed_time_spur = 0;
-		_elapsed_time_spur2 = 0;
-		_elapsed_time_sploop = 0;
-		_elapsed_time_idl = 0;
-		_elapsed_prop = 0;
-		_elapsed_time_tr = 0;
-		_elapsed_final_path_sort = 0;
-		_elapsed_init = 0;
-		_elapsed_sse = 0;
-		_sses = 0;
-		_props = 0;
-		_elapsed_pop = 0;
-		_max_precomp_nodes = 0;
-		_max_nodes = 0;
-		_sort_cnt = 0;
-		_skip_heaps = 0;
-		_leader_cnt = 0;
-	}
-	os << "=========================\n\n";
+void Ink::dump_profile(std::ostream& os) {
+  os << "total expansion time=" << pfxt_expansion_time << '\n';
+  os << "mark_pfxt_nodes=" << _rt_marking << '\n';
+  os << "cleanup_paths=" << _rt_cleanup_paths << '\n';
+  os << "cleanup_nodes=" << _rt_cleanup_nodes << '\n';
+  os << "spur_loop=" << _rt_spur << '\n';
+
+  pfxt_expansion_time = 0;
+  _rt_marking = 0;
+  _rt_cleanup_paths = 0;
+  _rt_cleanup_nodes = 0;
+  _rt_spur = 0;
+}
+
+void Ink::dump_graph_dot(std::ostream& os) const {
+  os << "digraph {\n";
+  for(const auto v : _vptrs) {
+    if (v) {
+      os << "  \"" << v->name  << "\";\n";
+    }
+  }
+
+  for(const auto e : _eptrs) {
+    if (e) {
+      os << "  \"" << e->from.name << "\" -> \"" << e->to.name << "\"" 
+         << " [label=\"" << *e->weights[0] << "\"];\n";
+    }
+  }
+  os << "}\n";
 }
 
 
@@ -764,9 +766,24 @@ void Ink::modify_vertex(size_t vid, float offset) {
     );
 
   }
+}
 
 
+std::vector<std::reference_wrapper<Edge>> Ink::find_chain_edges() {
+  std::vector<std::reference_wrapper<Edge>> erefs;
+  for (auto e : _eptrs) {
+    if (e) {
+      auto f = e->from;
+      auto t = e->to;
+      // if I'm the only fanout of vertex f
+      // and the only fanin of vertex t
+      if (f.fanout.size() == 1 && t.fanin.size() == 1) {
+        erefs.push_back(std::ref(*e));
+      } 
+    }
+  }
 
+  return erefs;
 }
 
 
@@ -1043,14 +1060,13 @@ void Ink::_sfxt_rebuild() {
 	auto& sfxt = *_global_sfxt;
 	assert(!sfxt.dists[T]);
 	sfxt.dists[T] = 0.0f;
-	
-	_build_sfxt(sfxt);
-	
 	// relax from destinations to super target
 	for (auto& p : _endpoints) {
 		sfxt.relax(p.vert.id, T, std::nullopt, 0.0f);
 	}
-
+  
+	_build_sfxt(sfxt);
+	
 	// relax from super source to sources
 	for (auto& [src, w] : sfxt.srcs) {
 		w = 0.0f;
@@ -1223,9 +1239,10 @@ void Ink::_spur_incsfxt(
 	bool save_pfxt_nodes,
 	bool recover_paths) {
 	
+  auto beg = std::chrono::steady_clock::now();
   auto& sfxt = *_global_sfxt;
   while (!pfxt.num_nodes() == 0) {
-		auto node = pfxt.pop();
+    auto node = pfxt.pop();
 
 		// no more paths to generate
 		if (node == nullptr) {
@@ -1236,7 +1253,11 @@ void Ink::_spur_incsfxt(
 			break;
 		}
 
-		if (recover_paths) {
+		
+		// expand search space
+		_spur(pfxt, *node);
+
+    if (recover_paths) {
 			// recover the complete path
 			auto path = std::make_unique<Path>(0.0f, nullptr);
 			_recover_path(*path, sfxt, node, sfxt.T);
@@ -1244,14 +1265,15 @@ void Ink::_spur_incsfxt(
 			_all_paths.push_back(std::move(path));
 		}
 		else {
-      _all_path_costs.push_back(node->detour_cost + *sfxt.dist());
+      _all_path_costs.push_back(node->cost);
     }
+  }
 
-		// expand search space
-		_spur(pfxt, *node);
-	}
+  auto end = std::chrono::steady_clock::now();
+  pfxt_expansion_time = 
+	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
-	if (save_pfxt_nodes) {
+  if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
@@ -1440,13 +1462,18 @@ void Ink::_spur_incremental_v2(
   Pfxt& pfxt,
   bool save_pfxt_nodes,
   bool recover_paths) {
-  
-  _mark_pfxt_nodes(pfxt);
-
   auto& sfxt = *_global_sfxt;
+  
+  auto beg = std::chrono::steady_clock::now();
+  _mark_pfxt_nodes(pfxt);
+  auto end = std::chrono::steady_clock::now();
+	_rt_marking = 
+    std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+  
   // iterate through pfxt.paths
   // clean up removed paths, spur any leaf nodes
   // record max deviation cost
+  beg = std::chrono::steady_clock::now();
   float max_dc{0.0f};
   for (size_t i = 0; i < pfxt.paths.size();) {
     auto& node = pfxt.paths[i];
@@ -1454,7 +1481,8 @@ void Ink::_spur_incremental_v2(
     if (node->removed) {
       node = std::move(pfxt.paths.back());
       pfxt.paths.pop_back();
-    } else {
+    } 
+    else {
       i++;
       max_dc = std::max(max_dc, node->detour_cost);
       if (recover_paths) {
@@ -1465,7 +1493,7 @@ void Ink::_spur_incremental_v2(
         _all_paths.push_back(std::move(path));
       }
       else {
-        _all_path_costs.push_back(node->detour_cost + *sfxt.dist());
+        _all_path_costs.push_back(node->cost);
       }
 
       if (node->num_children() == 0) {
@@ -1473,14 +1501,15 @@ void Ink::_spur_incremental_v2(
       }
 
       // clear spurred flag for next iteration
-      if (node->spurred) {
-        node->spurred = false;
-      }
+      node->spurred = false;
     }
-
   }
+  end = std::chrono::steady_clock::now();
+	_rt_cleanup_paths = 
+    std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
-  for (size_t i = 0; i < pfxt.nodes.size(); i++) {
+  beg = std::chrono::steady_clock::now();
+  for (size_t i = 0; i < pfxt.nodes.size();) {
     auto& node = pfxt.nodes[i];
     if (node->removed) {
       node = std::move(pfxt.nodes.back());
@@ -1488,16 +1517,18 @@ void Ink::_spur_incremental_v2(
     }
     else {
       // clear spurred flag for next iteration
-      if (node->spurred) {
-        node->spurred = false;
-      }
+      node->spurred = false;
       i++;
     }
     
   }
-  
   pfxt.heapify();
+  end = std::chrono::steady_clock::now();
+  _rt_cleanup_nodes = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 
+
+  beg = std::chrono::steady_clock::now();
   auto valid{false};
   while (!pfxt.num_nodes() == 0) {
     auto node = pfxt.pop();  
@@ -1506,6 +1537,10 @@ void Ink::_spur_incremental_v2(
 		if (node == nullptr) {
 			break;
 		}
+
+    if (!valid && node->detour_cost >= max_dc) {
+      valid = true;
+    }
 
 		if (valid && 
         (_all_paths.size() >= K || _all_path_costs.size() >= K)) {
@@ -1516,7 +1551,11 @@ void Ink::_spur_incremental_v2(
       continue;
     }
 
-		if (recover_paths) {
+		// expand search space
+		// find children (more detours) for node
+		_spur(pfxt, *node);
+    
+    if (recover_paths) {
 			// recover the complete path
 			auto path = std::make_unique<Path>(0.0f, nullptr);
 			_recover_path(*path, sfxt, node, sfxt.T);
@@ -1524,17 +1563,16 @@ void Ink::_spur_incremental_v2(
 			_all_paths.push_back(std::move(path));
 		}
 		else {
-			_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
-    }
-
-		// expand search space
-		// find children (more detours) for node
-		_spur(pfxt, *node);
-
-    if (!valid && node->detour_cost >= max_dc) {
-      valid = true;
+			_all_path_costs.push_back(node->cost);
     }
   }
+  end = std::chrono::steady_clock::now();
+  _rt_spur = 
+		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+ 
+
+  pfxt_expansion_time = 
+    _rt_marking + _rt_cleanup_paths + _rt_cleanup_nodes + _rt_spur;
 
   if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
@@ -1567,22 +1605,16 @@ std::vector<Path> Ink::report_incremental_v2(
 		}
 	}
 
-  auto beg = std::chrono::steady_clock::now();
-	_sfxt_cache();
-  auto end = std::chrono::steady_clock::now();
-	
-	sfxt_update_time = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-  auto& sfxt = *_global_sfxt;
+  pfxt_expansion_time = 0;
 
+	_sfxt_cache();
+  auto& sfxt = *_global_sfxt;
   auto pfxt = _pfxt_cache(sfxt);
 	pfxt.nodes = std::move(_pfxt_nodes);
 	pfxt.paths = std::move(_pfxt_paths);
   pfxt.srcs = std::move(_pfxt_srcs);
 
 	_spur_incremental_v2(K, pfxt, save_pfxt_nodes, recover_paths);	
-
-  incremental_time = sfxt_update_time + pfxt_expansion_time;
 
 	// report complete, clear the update list
 	_clear_update_list();	
@@ -1597,7 +1629,7 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
 	auto pfxt = _pfxt_cache(sfxt);
 
 	auto beg = std::chrono::steady_clock::now();
-	while (!(pfxt.num_nodes() == 0)) {
+	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
 		// no more paths to generate
 		if (node == nullptr) {
@@ -1614,10 +1646,8 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
       _recover_path(*path, sfxt, node, sfxt.T);
 
       path->weight = path->back().dist;
-      if (path->size() > 1) {
-        heap.push(std::move(path));
-        heap.fit(K);
-      }
+      heap.push(std::move(path));
+      heap.fit(K);
     }
     else {
 			_all_path_costs.push_back(node->detour_cost + *sfxt.dist());
@@ -1905,7 +1935,7 @@ void Ink::_dfs(
 
 std::vector<Path> Ink::_extract_paths(
 	std::vector<std::unique_ptr<Path>>& paths) {
-	std::sort(
+  std::sort(
 		paths.begin(), 
 		paths.end(), 
 		[](std::unique_ptr<Path>& a, std::unique_ptr<Path>& b) {
