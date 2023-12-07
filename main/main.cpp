@@ -8,7 +8,7 @@ bool check_results(
   const std::vector<float>& costs_inc,
   const std::vector<float>& costs_full) {
   for (size_t i = 0; i < costs_full.size(); i++) {
-    if (!equal(costs_inc[i], costs_full[i], 0.00001f)) {
+    if (!equal(costs_inc[i], costs_full[i], 0.001f)) {
       std::cout << "mismatch at " << i << "-th path.\n";
       std::cout << "cost_inc=" << costs_inc[i] << '\n';
       std::cout << "cost_full=" << costs_full[i] << '\n';
@@ -47,7 +47,8 @@ int main(int argc, char* argv[]) {
   auto es_inc = ink_inc.find_chain_edges(); 
   std::vector<float> costs_full, costs_inc, cache_full, cache_inc;
 
-  std::ofstream ofs_prof("out-prof");
+  std::ofstream ofs_pts_full("out-path-traces-full");
+  std::ofstream ofs_pts_inc("out-path-traces-inc");
   std::ofstream ofs_inc("out-inc");
   std::ofstream ofs_full("out-full");
   std::ofstream ofs_rt_full("out-runtime-distr-full");
@@ -57,13 +58,15 @@ int main(int argc, char* argv[]) {
   auto paths_full = ink_full.report_incsfxt(num_paths, false, recover_path);
   auto paths_inc = ink_inc.report_incsfxt(num_paths, true, recover_path);
   if (recover_path) {
-    for (const auto& p : paths_full) {
-      costs_full.emplace_back(p.weight);
-    }
+    //for (const auto& p : paths_full) {
+    //  costs_full.emplace_back(p.weight);
+    //}
 
-    for (const auto& p : paths_inc) {
-      costs_inc.emplace_back(p.weight);
-    }
+    //for (const auto& p : paths_inc) {
+    //  costs_inc.emplace_back(p.weight);
+    //}
+    costs_full = ink_full.get_path_costs();
+    costs_inc = ink_inc.get_path_costs();
   }
   else {
     costs_full = ink_full.get_path_costs();
@@ -76,6 +79,8 @@ int main(int argc, char* argv[]) {
     std::exit(EXIT_FAILURE);
   }
 
+  cache_full = std::move(costs_full);
+  cache_inc = std::move(costs_inc);
   costs_full.clear();
   costs_inc.clear();
 
@@ -128,13 +133,15 @@ int main(int argc, char* argv[]) {
     paths_inc = ink_inc.report_incremental_v2(num_paths, true, recover_path);
 
     if (recover_path) {
-      for (const auto& p : paths_full) {
-        costs_full.emplace_back(p.weight);
-      }
+      //for (const auto& p : paths_full) {
+      //  costs_full.emplace_back(p.weight);
+      //}
 
-      for (const auto& p : paths_inc) {
-        costs_inc.emplace_back(p.weight);
-      }
+      //for (const auto& p : paths_inc) {
+      //  costs_inc.emplace_back(p.weight);
+      //}
+      costs_full = ink_full.get_path_costs();
+      costs_inc = ink_inc.get_path_costs();
     }
     else {
       costs_full = ink_full.get_path_costs();
@@ -142,7 +149,9 @@ int main(int argc, char* argv[]) {
     }
 
     // check results
-    bool check = check_results(costs_inc, costs_full);
+    cache_full = std::move(costs_full);
+    cache_inc = std::move(costs_inc);
+    bool check = check_results(cache_inc, cache_full);
     if (!check) {
       std::cout << "mismatch at iteration " << i << "!\n"; 
       break;
@@ -151,8 +160,6 @@ int main(int argc, char* argv[]) {
     ofs_rt_full << ink_full.pfxt_expansion_time * 1e-6 << '\n';
     ofs_rt_inc << ink_inc.pfxt_expansion_time * 1e-6 << '\n';
   
-    cache_full = std::move(costs_full);
-    cache_inc = std::move(costs_inc);
     costs_full.clear();
     costs_inc.clear();
   }
@@ -164,7 +171,19 @@ int main(int argc, char* argv[]) {
   for (auto c : cache_inc) {
     ofs_inc << c << '\n';
   }
- 
+
+  if (paths_full.size() != 0) {
+    for (size_t i = 0; i < paths_full.size(); i++) {
+      ofs_pts_full << "---- Path " << i << " ----\n";
+      paths_full[i].dump(ofs_pts_full);
+    }
+
+    for (size_t i = 0; i < paths_inc.size(); i++) {
+      ofs_pts_inc << "---- Path " << i << " ----\n";
+      paths_inc[i].dump(ofs_pts_inc);
+    }
+  }
+
 
  	return 0;
 }

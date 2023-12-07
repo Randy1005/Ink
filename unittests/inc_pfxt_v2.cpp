@@ -76,6 +76,11 @@ TEST_CASE("Insert / Remove / Update  Edges (two inc iterations)" * doctest::time
   inc_full.report_incsfxt(10, false, false);   
   costs_full = inc_full.get_path_costs();
   REQUIRE(costs_full.size() == 10);
+  
+  for (auto c : costs_inc) {
+    std::cout << c << '\n';
+  }
+
 
   for (size_t i = 0; i < costs_full.size(); i++) {
     REQUIRE(float_equal(costs_inc[i], costs_full[i]));

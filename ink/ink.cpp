@@ -1249,10 +1249,6 @@ void Ink::_spur_incsfxt(
 			break;
 		}		
 
-		if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
-			break;
-		}
-
 		
 		// expand search space
 		_spur(pfxt, *node);
@@ -1267,6 +1263,11 @@ void Ink::_spur_incsfxt(
 		else {
       _all_path_costs.push_back(node->cost);
     }
+		
+    
+    if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
+			break;
+		}
   }
 
   auto end = std::chrono::steady_clock::now();
@@ -1347,14 +1348,28 @@ void Ink::_spur_incremental(
 } 
 
 void Ink::_mark_pfxt_nodes(Pfxt& pfxt) { 
+  auto sfxt = *_global_sfxt;
   std::queue<PfxtNode*> q;
   for (auto s : pfxt.srcs) {
+    auto v = s->to;
+    // NOTE: we assume weight from S to primary inputs are 0
+    // but in real circuits this might change
+    auto w = 0.0f;
+    // update root pfxt node cost
+    if (v == *sfxt.successors[sfxt.S]) {
+      s->detour_cost = 0.0f;
+      s->cost = *sfxt.dist();
+    }
+    else {
+      s->detour_cost = *sfxt.dists[v] + w - *sfxt.dist();
+      s->cost = s->detour_cost + *sfxt.dist(); 
+    }
+
     for (auto c : s->children) {
       q.push(c);
     }
   }
 
-  auto sfxt = *_global_sfxt;
   int spur_begin, to_spurs, total_spurs, updates_per_parent;
   PfxtNode* curr_parent{nullptr};
 
@@ -1403,7 +1418,8 @@ void Ink::_mark_pfxt_nodes(Pfxt& pfxt) {
         auto w = *eptr->weights[w_sel];
         auto dc = *sfxt.dists[v] + w - *sfxt.dists[u];
         node->detour_cost = dc + p->detour_cost; 
-        
+        node->cost = node->detour_cost + *sfxt.dist(); 
+
         // finished updating a non-sfxt edge, decrement to_spurs 
         // if to_spurs == 0, spur_begin can advance to its successor
         to_spurs--;
@@ -1542,12 +1558,7 @@ void Ink::_spur_incremental_v2(
       valid = true;
     }
 
-		if (valid && 
-        (_all_paths.size() >= K || _all_path_costs.size() >= K)) {
-			break;
-		}
-
-    if (node->removed) {
+		if (node->removed) {
       continue;
     }
 
@@ -1565,6 +1576,12 @@ void Ink::_spur_incremental_v2(
 		else {
 			_all_path_costs.push_back(node->cost);
     }
+
+    if (valid && 
+        (_all_paths.size() >= K || _all_path_costs.size() >= K)) {
+			break;
+		}
+
   }
   end = std::chrono::steady_clock::now();
   _rt_spur = 
