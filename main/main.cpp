@@ -1,5 +1,4 @@
 #include <ink/ink.hpp>
-
 bool equal(float v1, float v2, float eps) {
   return std::fabs(v1 - v2) < eps;
 }
@@ -57,21 +56,8 @@ int main(int argc, char* argv[]) {
   // full CPG at the 1st iteration
   auto paths_full = ink_full.report_incsfxt(num_paths, false, recover_path);
   auto paths_inc = ink_inc.report_incsfxt(num_paths, true, recover_path);
-  if (recover_path) {
-    //for (const auto& p : paths_full) {
-    //  costs_full.emplace_back(p.weight);
-    //}
-
-    //for (const auto& p : paths_inc) {
-    //  costs_inc.emplace_back(p.weight);
-    //}
-    costs_full = ink_full.get_path_costs();
-    costs_inc = ink_inc.get_path_costs();
-  }
-  else {
-    costs_full = ink_full.get_path_costs();
-    costs_inc = ink_inc.get_path_costs();
-  }
+  costs_full = ink_full.get_path_costs();
+  costs_inc = ink_inc.get_path_costs();
   
   bool check = check_results(costs_inc, costs_full);
   if (!check) {
@@ -89,6 +75,10 @@ int main(int argc, char* argv[]) {
 
   ofs_rt_full << "iteration runtime\n";
   ofs_rt_inc << "iteration runtime\n";
+  float accum_speedup{0.0f};
+  float accum_rt_full{0.0f};
+  float accum_rt_inc{0.0f};
+
   for (size_t i = 0; i < num_iters; i++) {
     ofs_rt_full << i+1 << ' ';
     ofs_rt_inc << i+1 << ' ';  
@@ -115,7 +105,7 @@ int main(int argc, char* argv[]) {
     ink_inc.insert_buffer(bname, e_inc);
     bnames_inc.push_back(bname);
 
-    if (i > 2) {
+    if (i > 3) {
       // start removing inserted buffers
       auto& bfull = bnames_full.front(); 
       auto& binc = bnames_inc.front();
@@ -125,6 +115,31 @@ int main(int argc, char* argv[]) {
       std::cout << "remove " << bfull << '\n';   
       bnames_full.pop_front();
       bnames_inc.pop_front();
+
+      // grab another edge and update weight
+      auto& efull = es_full.back().get();
+      es_full.pop_back();
+
+      es_inc.pop_back();
+      
+      const auto& fname = efull.from.name;
+      const auto& tname = efull.to.name;
+
+      // update edge weight (add arbitrary offset)
+      const float offset = 0.03f;
+      auto ws = efull.weights;
+      for (auto& w : ws) {
+        *w += offset;
+      }
+      ink_full.insert_edge(fname, tname, 
+        ws[0], ws[1], ws[2], ws[3],
+        ws[4], ws[5], ws[6], ws[7]);
+      
+      ink_inc.insert_edge(fname, tname, 
+        ws[0], ws[1], ws[2], ws[3],
+        ws[4], ws[5], ws[6], ws[7]);
+      std::cout << "update " << efull.name() << '\n';
+    
     }
 
 
@@ -132,21 +147,8 @@ int main(int argc, char* argv[]) {
     paths_full = ink_full.report_incsfxt(num_paths, false, recover_path);
     paths_inc = ink_inc.report_incremental_v2(num_paths, true, recover_path);
 
-    if (recover_path) {
-      //for (const auto& p : paths_full) {
-      //  costs_full.emplace_back(p.weight);
-      //}
-
-      //for (const auto& p : paths_inc) {
-      //  costs_inc.emplace_back(p.weight);
-      //}
-      costs_full = ink_full.get_path_costs();
-      costs_inc = ink_inc.get_path_costs();
-    }
-    else {
-      costs_full = ink_full.get_path_costs();
-      costs_inc = ink_inc.get_path_costs();
-    }
+    costs_full = ink_full.get_path_costs();
+    costs_inc = ink_inc.get_path_costs();
 
     // check results
     cache_full = std::move(costs_full);
@@ -157,9 +159,16 @@ int main(int argc, char* argv[]) {
       break;
     }
 
-    ofs_rt_full << ink_full.pfxt_expansion_time * 1e-6 << '\n';
-    ofs_rt_inc << ink_inc.pfxt_expansion_time * 1e-6 << '\n';
+    auto rt_full = static_cast<float>(ink_full.pfxt_expansion_time) * 1e-6;
+    auto rt_inc = static_cast<float>(ink_inc.pfxt_expansion_time) * 1e-6;
+
+    ofs_rt_full << rt_full << '\n';
+    ofs_rt_inc << rt_inc << '\n';
   
+    accum_speedup += (static_cast<float>(ink_full.pfxt_expansion_time) / ink_inc.pfxt_expansion_time); 
+    accum_rt_full += rt_full;
+    accum_rt_inc += rt_inc;    
+
     costs_full.clear();
     costs_inc.clear();
   }
@@ -172,7 +181,7 @@ int main(int argc, char* argv[]) {
     ofs_inc << c << '\n';
   }
 
-  if (paths_full.size() != 0) {
+  if (paths_full.size() != 0 && recover_path) {
     for (size_t i = 0; i < paths_full.size(); i++) {
       ofs_pts_full << "---- Path " << i << " ----\n";
       paths_full[i].dump(ofs_pts_full);
@@ -183,6 +192,10 @@ int main(int argc, char* argv[]) {
       paths_inc[i].dump(ofs_pts_inc);
     }
   }
+
+  std::cout << std::setprecision(3) << "Avg. speedup = " << accum_speedup / num_iters << '\n';
+  std::cout << std::setprecision(4) << "Avg. full CPG runtime  = " << accum_rt_full / num_iters << '\n';
+  std::cout << std::setprecision(4) << "Avg. Ink runtime  = " << accum_rt_inc / num_iters << '\n';
 
 
  	return 0;
