@@ -53,9 +53,8 @@ TEST_CASE("Simplified s27 Benchmark" * doctest::timeout(300)) {
 	REQUIRE(ink.num_edges() == 30);
 	REQUIRE(ink.num_verts() == 31);
 
-
+  
 	auto paths = ink.report_incsfxt(10);
-	
 	REQUIRE(paths.size() == 10);
 
 	// shortest path is G2, isnt_5:A1, inst_5:ZN, inst_14:D

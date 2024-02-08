@@ -432,7 +432,7 @@ std::vector<Path> Ink::report_incsfxt(
 	_sfxt_cache();
 	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
-	_spur_incsfxt(K, heap, pfxt, save_pfxt_nodes, recover_paths);	
+  _spur_incsfxt(K, heap, pfxt, save_pfxt_nodes, recover_paths);	
 	
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -529,6 +529,84 @@ std::vector<Path> Ink::report_incremental(
 
 	return _extract_paths(_all_paths);
 }
+
+std::vector<Path> Ink::report_async(
+	size_t K, 
+	bool recover_paths) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+  pfxt_expansion_time = 0;
+
+	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	auto pfxt = _pfxt_cache(sfxt);
+  _spur_async(K, pfxt, recover_paths);
+
+	// report complete, clear the update list
+	_clear_update_list();		
+	
+	return _extract_paths(_all_paths);
+}
+
+std::vector<Path> Ink::report_multiq(
+  float max_dc,
+	size_t K, 
+  size_t N,
+	bool recover_paths) {
+	if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+  pfxt_expansion_time = 0;
+
+  old_max_dc = max_dc;
+  num_task_qs = N;
+
+  _sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+  auto pfxt = _pfxt_cache_multiq(sfxt);
+  _spur_multiq(K, pfxt, recover_paths);
+
+	// report complete, clear the update list
+	_clear_update_list();		
+	
+	return {};
+}
+
+
+
 
 
 void Ink::dump(std::ostream& os) const {
@@ -699,6 +777,16 @@ std::vector<float> Ink::get_path_costs() {
   return costs;
 }
 
+std::vector<float> Ink::get_path_costs_from_cq() {
+  std::vector<float> costs;
+  while (_spurred_nodes.size_approx() != 0) {
+    std::unique_ptr<PfxtNode> node;
+    _spurred_nodes.try_dequeue(node);
+    costs.push_back(node->cost);
+  }
+  std::sort(costs.begin(), costs.end());
+  return costs;
+}
 
 void Ink::update_edges_percent(float percent) {
   size_t N = _eptrs.size() * (percent / 100.0f);
@@ -1097,7 +1185,7 @@ Sfxt Ink::_sfxt_cache(const Point& p) const {
 }
 
 
-Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
+Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) {
 	Pfxt pfxt(sfxt);
 	assert(sfxt.dist());
 
@@ -1109,12 +1197,35 @@ Pfxt Ink::_pfxt_cache(const Sfxt& sfxt) const {
 
 		auto cost = *sfxt.dists[src] + *w;
     auto node = pfxt.push(cost, *w, sfxt.S, src, nullptr, nullptr, std::nullopt);
-		
+	  
+    // push to concurrent priority queue also
+    pfxt.push_par(cost, *w, sfxt.S, src, nullptr, nullptr, std::nullopt);
+
 		// cache pfxt src nodes
 		pfxt.srcs.emplace_back(node);	
 	}
 	return pfxt;
 }
+
+Pfxt Ink::_pfxt_cache_multiq(const Sfxt& sfxt) {
+	Pfxt pfxt(sfxt);
+	assert(sfxt.dist());
+  set_num_task_qs(pfxt, num_task_qs);
+  assert(!pfxt.task_qs.empty());
+
+	// generate path prefix from each source vertex
+	for (const auto& [src, w] : sfxt.srcs) {
+		if (!w || !sfxt.dists[src]) {
+			continue;
+		}
+
+		auto cost = *sfxt.dists[src] + *w;
+    pfxt.push_task(*this, cost, *w, sfxt.S, src, nullptr, nullptr, std::nullopt);
+	}
+	return pfxt;
+}
+
+
 
 void Ink::_update_pfxt(Pfxt& pfxt, float& max_dc) {
 
@@ -1279,7 +1390,6 @@ void Ink::_spur_incsfxt(
 		_pfxt_nodes = std::move(pfxt.nodes);
 		_pfxt_paths = std::move(pfxt.paths);
 	}	
-	
 }
 
 void Ink::_spur_incremental(
@@ -1346,6 +1456,119 @@ void Ink::_spur_incremental(
 		_pfxt_paths = std::move(pfxt.paths);
 	}
 } 
+
+void Ink::_spur_async(
+	size_t K,
+  Pfxt& pfxt, 
+	bool recover_paths) {
+
+  auto beg = std::chrono::steady_clock::now();  
+  auto& sfxt = *_global_sfxt;
+  while (!pfxt.par_prq.empty()) {
+		auto node = pfxt.pop_par();
+    if (node == nullptr) {
+      break;
+    }
+
+    // expand search space
+		_spur_async(pfxt, *node);
+
+    if (recover_paths) {
+			// recover the complete path
+			auto path = std::make_unique<Path>(0.0f, nullptr);
+			_recover_path(*path, sfxt, node, sfxt.T);
+			path->weight = path->back().dist;
+			_all_paths.push_back(std::move(path));
+		}
+		else {
+      _all_path_costs.push_back(node->cost);
+    }
+		
+    if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
+			break;
+		}
+  }
+
+  auto end = std::chrono::steady_clock::now();  
+  pfxt_expansion_time = 
+	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+}
+
+void Ink::_spur_multiq(
+	size_t K,
+  Pfxt& pfxt, 
+	bool recover_paths) {
+  _atom_path_cnt = 0;
+
+  auto beg = std::chrono::steady_clock::now();  
+  auto& sfxt = *_global_sfxt;
+  // TODO: how would we know if the N queues are "really" empty and
+  // stop the loop? In real benchmarks, it's extremely unlikely to
+  // run out of nodes, but we have to deal with this scenario
+  while (_atom_path_cnt < K) {
+    _executor.silent_async([=, &pfxt]() {
+      size_t q_id = 0;
+      while (pfxt.task_qs[q_id].size_approx() == 0) {
+        if (q_id == num_task_qs - 1) {
+          break;
+        }  
+        q_id++;
+      }
+     
+      // if we have moved on to the queue with
+      // the lowest priority, we should update
+      // the bounds and redistribute the nodes 
+      // NOTE: this should be a critical section?
+      // TODO: figure how to do this
+      // multiple threads would still have qid = N-1
+      // and some might update bounds again 
+
+      if (q_id == num_task_qs - 1) {
+        bool expected{false};
+        if (!updating_bounds.compare_exchange_weak(expected, true)) {
+          return;
+        }
+        auto init = bounds.back();
+        auto width = old_max_dc / num_task_qs;
+        for (size_t i = 0; i < num_task_qs - 1; i++) {
+          bounds[i] = init + width * (i + 1); 
+        }
+       
+        // move candidate nodes to a temp. storage 
+        _tmp_q = std::move(pfxt.task_qs[q_id]);
+
+        // redistribute tasks to the responsible queues
+        while (!_tmp_q.size_approx() == 0) {
+          std::unique_ptr<PfxtNode> node;
+          _tmp_q.try_dequeue(node);
+          auto q_idx = determine_q_idx(node->cost);
+          pfxt.task_qs[q_idx].enqueue(std::move(node));
+        }
+        
+      }
+
+      assert(q_id < num_task_qs);
+      auto node = pfxt.pop_task(q_id);
+      if (node == nullptr) {
+        return;
+      }
+      _spur_multiq(pfxt, *node);
+      _atom_path_cnt++;
+    });  
+  }
+  _executor.wait_for_all();
+
+  auto end = std::chrono::steady_clock::now();  
+  pfxt_expansion_time = 
+	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+  _spurred_nodes = std::move(pfxt.paths_concurr); 
+}
+
+
+
+
+
+
 
 void Ink::_mark_pfxt_nodes(Pfxt& pfxt) { 
   auto sfxt = *_global_sfxt;
@@ -1640,6 +1863,134 @@ std::vector<Path> Ink::report_incremental_v2(
 }
 
 
+void Ink::_spur_parallel(
+  size_t K,
+  bool recover_paths) {
+  std::atomic<bool> finished{false};
+ 
+//  // TODO: how would I know if the prefix tree has fully grown?
+//  // _standybys.size_approx() is not necessarily accurate
+//
+//
+//  while (!finished) {
+//    _executor.silent_async([&]() {
+//      if (_atom_path_cnt.load() >= K) {
+//        finished = true;
+//        return;
+//      }
+//      
+//      // dequeue a pfxt node from the standby queue
+//      std::unique_ptr<PfxtNode> node;
+//      _standbys.try_dequeue(node);
+//
+//      if (node && !finished) {
+//        // approximate new avg.
+//        auto size = _standbys.size_approx();
+//        auto obs = node.get();
+//        auto old_avg = _atom_avg_dc.load();
+//        size_t local_avg{0};
+//        if (size == 0) {
+//          // I got the only node left in the queue
+//          // must spur this node
+//          _spur_no_pq(*obs, local_avg);
+//          _paths.try_enqueue(std::move(node)); 
+//          
+//          // update path count
+//          _atom_path_cnt.fetch_add(1); 
+//
+//          // update avg. = (current avg + local avg) / 2
+//          while (!_atom_avg_dc.compare_exchange_weak(
+//                  old_avg, 
+//                  (old_avg + local_avg) / 2)
+//          );
+//        }
+//        else {
+//          auto new_avg = (old_avg * (size + 1) - node->detour_cost * AVG_DC_SCALE) / size;
+//          if (new_avg >= old_avg) {
+//            // I have popped a node with relatively small cost
+//            // should spur this node
+//            _spur_no_pq(*obs, local_avg);
+//            _paths.try_enqueue(std::move(node)); 
+//          
+//            // update path count
+//            _atom_path_cnt.fetch_add(1); 
+//          
+//            // update avg. = (current avg + local avg) / 2
+//            while (!_atom_avg_dc.compare_exchange_weak(
+//                    old_avg, 
+//                    (old_avg + local_avg) / 2)
+//            );
+//          }
+//          else {
+//            // this node should go back and wait
+//            _standbys.try_enqueue(std::move(node));
+//          }
+//        }
+//        
+//      }
+//      else {
+//        return;
+//      }
+//    }); 
+//  }
+//
+//  _executor.wait_for_all();
+}
+
+
+std::vector<Path> Ink::report_parallel(
+  size_t K,
+  bool recover_paths) {
+  if (K == 0) {
+		return {};
+	}
+	
+	// TODO: K = 1
+	if (K == 1) {
+	
+	}
+
+	// incremental: clear endpoint storage
+	_endpoints.clear();
+
+	// scan and add the out-degree=0 vertices to the endpoint vector
+	for (const auto v : _vptrs) {
+		if (v != nullptr && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);	
+		}
+	}
+
+  pfxt_expansion_time = 0;
+
+	_sfxt_cache();
+	auto& sfxt = *_global_sfxt;
+	
+  // initialize concurrent queue of pfxt nodes
+  // i.e. generate prefices for graph source
+  float sum{0};
+  for (const auto& [src, w] : sfxt.srcs) {
+		if (!w || !sfxt.dists[src]) {
+			continue;
+		}
+		auto cost = *sfxt.dists[src] + *w;
+    _standbys.try_enqueue(
+      std::make_unique<PfxtNode>(
+        cost, *w, sfxt.S, src,
+        nullptr, nullptr, std::nullopt)
+    );
+  }
+
+  // initialize avg. deviation cost
+  _atom_avg_dc = 0;
+
+  _spur_parallel(K, recover_paths);	
+	
+	// report complete, clear the update list
+	_clear_update_list();		
+	
+	return {};
+}
+
 
 void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
  	auto& sfxt = *_global_sfxt;
@@ -1751,6 +2102,86 @@ void Ink::_spur(Pfxt& pfxt, PfxtNode& pfx) {
 		u = *pfxt.sfxt.successors[u];
 	}
 }
+
+void Ink::_spur_async(Pfxt& pfxt, PfxtNode& pfx) {
+	auto u = pfx.to;
+	while (u != pfxt.sfxt.T) {
+		_executor.silent_async([=, &pfxt, &pfx]() {
+      auto uptr = _vptrs[u];
+      for (auto edge : uptr->fanout) {
+        for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+          if (!edge->weights[w_sel]) {
+            continue;
+          }
+
+          // skip if the edge goes outside of the suffix tree
+          // which is unreachable
+          auto v = edge->to.id;
+          if (!pfxt.sfxt.dists[v]) {
+            continue;
+          }
+
+          // skip if the edge belongs to the suffix 
+          // NOTE: we're detouring, so we don't want to
+          // go on the same paths explored by the suffix tree
+          if (pfxt.sfxt.links[u] &&
+              _encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+            continue;
+          }
+        
+          auto w = *edge->weights[w_sel];
+          auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
+          auto c = detour_cost + pfx.cost;
+          auto dc = detour_cost + pfx.detour_cost;
+          pfxt.push_par(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+        }
+      }
+ 
+    });
+		u = *pfxt.sfxt.successors[u];
+	}
+  _executor.wait_for_all();
+}
+
+void Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx) {
+	auto u = pfx.to;
+
+	while (u != pfxt.sfxt.T) {
+		//assert(pfxt.sfxt.links[u]);
+		auto uptr = _vptrs[u];
+		for (auto edge : uptr->fanout) {
+			for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+				if (!edge->weights[w_sel]) {
+					continue;
+				}
+
+				// skip if the edge goes outside of the suffix tree
+				// which is unreachable
+				auto v = edge->to.id;
+				if (!pfxt.sfxt.dists[v]) {
+					continue;
+				}
+
+				// skip if the edge belongs to the suffix 
+				// NOTE: we're detouring, so we don't want to
+				// go on the same paths explored by the suffix tree
+				if (pfxt.sfxt.links[u] &&
+						_encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+					continue;
+				}
+			
+				auto w = *edge->weights[w_sel];
+				auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
+				auto c = detour_cost + pfx.cost;
+        auto dc = detour_cost + pfx.detour_cost;
+				pfxt.push_task(*this, c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+			}
+		}
+
+		u = *pfxt.sfxt.successors[u];
+	}
+}
+
 
 
 void Ink::_spur_midway(
@@ -1875,6 +2306,64 @@ void Ink::_spur_pruned(
 		_eptrs[p.first]->pruned_weights[p.second] = false;
 	}
 }
+
+void Ink::_spur_no_pq(PfxtNode& pfx, size_t& local_avg) {
+	auto u = pfx.to;
+  auto& sfxt = *_global_sfxt;
+  size_t dc_sum{0};
+  size_t node_cnt{0};
+	while (u != sfxt.T) {
+	  //assert(pfxt.sfxt.links[u]);
+		auto uptr = _vptrs[u];
+		for (auto edge : uptr->fanout) {
+			for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+				if (!edge->weights[w_sel]) {
+					continue;
+				}
+
+				// skip if the edge goes outside of the suffix tree
+				// which is unreachable
+				auto v = edge->to.id;
+				if (!sfxt.dists[v]) {
+					continue;
+				}
+
+				// skip if the edge belongs to the suffix 
+				// NOTE: we're detouring, so we don't want to
+				// go on the same paths explored by the suffix tree
+				if (sfxt.links[u] &&
+						_encode_edge(*edge, w_sel) == *sfxt.links[u]) {
+					continue;
+				}
+			
+				auto w = *edge->weights[w_sel];
+				auto detour_cost = *sfxt.dists[v] + w - *sfxt.dists[u]; 
+				auto c = detour_cost + pfx.cost;
+        auto dc = detour_cost + pfx.detour_cost;
+        
+        // allocate new child node for pfx
+        // and push to standby queue
+        node_cnt++;
+        dc_sum += dc * AVG_DC_SCALE;
+        _standbys.try_enqueue(
+          std::make_unique<PfxtNode>(
+            c, dc, u, v, edge,
+            &pfx, _encode_edge(*edge, w_sel))
+        );
+      }
+		}
+
+		u = *sfxt.successors[u];
+	}
+  
+  // calculate local avg. deviation cost
+  if (node_cnt != 0) {
+    local_avg = dc_sum / node_cnt;
+  }
+}
+
+
+
 
 
 void Ink::_recover_path(
@@ -2067,9 +2556,9 @@ PfxtNode* Pfxt::push(
 	Edge* e,
 	PfxtNode* p,
 	std::optional<std::pair<size_t, size_t>> link) {
-	nodes.emplace_back(std::make_unique<PfxtNode>(c, dc, f, t, e, p, link));
-
-	// cache the pointer we just pushed
+  nodes.emplace_back(std::make_unique<PfxtNode>(c, dc, f, t, e, p, link));
+  
+  // cache the pointer we just pushed
 	auto obs = nodes.back().get();
 
 	// store this node to its corresponding edge's
@@ -2086,11 +2575,11 @@ PfxtNode* Pfxt::push(
 	else {
 		obs->level = 0;	
 	}
-
-	// push node to heap 
-	std::push_heap(nodes.begin(), nodes.end(), comp);
 	
-	return obs;
+  // push node to heap 
+  std::push_heap(nodes.begin(), nodes.end(), comp);
+	
+  return obs;
 }
 
 PfxtNode* Pfxt::push_inc(
@@ -2128,6 +2617,57 @@ PfxtNode* Pfxt::push_inc(
 	return obs;
 }
 
+void Pfxt::push_par(
+	float c,
+  float dc,
+	size_t f,
+	size_t t,
+	Edge* e,
+	PfxtNode* p,
+	std::optional<std::pair<size_t, size_t>> l) {
+  par_prq.emplace(std::make_unique<PfxtNode>(c, dc, f, t, e, p, l));
+}
+
+void Pfxt::push_task(
+	const Ink& ink,
+  float c,
+  float dc,
+	size_t f,
+	size_t t,
+	Edge* e,
+	PfxtNode* p,
+	std::optional<std::pair<size_t, size_t>> l) {
+  auto q_idx = ink.determine_q_idx(c);
+  task_qs[q_idx].enqueue(std::make_unique<PfxtNode>(c, dc, f, t, e, p, l));
+}
+
+
+PfxtNode* Pfxt::pop_par() {
+  // a temporary node to transfer ownership
+  std::unique_ptr<PfxtNode> node;
+
+  if (par_prq.try_pop(node)) {
+    auto obs = node.get();
+    paths.push_back(std::move(node));
+    return obs;
+  }
+  
+  return nullptr;
+}
+
+PfxtNode* Pfxt::pop_task(size_t q_idx) {
+  // a temporary node to transfer ownership
+  std::unique_ptr<PfxtNode> node;
+
+  assert(q_idx < task_qs.size());
+  if (task_qs[q_idx].try_dequeue(node)) {
+    auto obs = node.get();
+    paths_concurr.enqueue(std::move(node));
+    return obs;
+  }
+  
+  return nullptr;
+}
 
 
 
@@ -2161,9 +2701,9 @@ void Pfxt::heapify() {
 // ------------------------
 // PfxtNodeComp Implementations
 // ------------------------
-bool Pfxt::PfxtNodeComp::operator() (
+bool PfxtNodeComp::operator() (
 	const std::unique_ptr<PfxtNode>& a,
-	const std::unique_ptr<PfxtNode>& b) const {
+	const std::unique_ptr<PfxtNode>& b) {
 	return a->cost > b->cost;
 }	
 

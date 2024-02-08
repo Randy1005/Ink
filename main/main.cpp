@@ -52,6 +52,7 @@ int main(int argc, char* argv[]) {
   std::ofstream ofs_full("out-full");
   std::ofstream ofs_rt_full("out-runtime-distr-full");
   std::ofstream ofs_rt_inc("out-runtime-distr-inc");
+  std::ofstream ofs_max_cost("out-max-costs");
 
   // full CPG at the 1st iteration
   auto paths_full = ink_full.report_incsfxt(num_paths, false, recover_path);
@@ -126,11 +127,14 @@ int main(int argc, char* argv[]) {
       const auto& tname = efull.to.name;
 
       // update edge weight (add arbitrary offset)
-      const float offset = 0.03f;
+      const float offset = 2.7f;
       auto ws = efull.weights;
+      std::cout << "ws=";
       for (auto& w : ws) {
         *w += offset;
+        std::cout << *w << ' ';
       }
+      std::cout << '\n';
       ink_full.insert_edge(fname, tname, 
         ws[0], ws[1], ws[2], ws[3],
         ws[4], ws[5], ws[6], ws[7]);
@@ -139,7 +143,6 @@ int main(int argc, char* argv[]) {
         ws[0], ws[1], ws[2], ws[3],
         ws[4], ws[5], ws[6], ws[7]);
       std::cout << "update " << efull.name() << '\n';
-    
     }
 
 
@@ -169,6 +172,10 @@ int main(int argc, char* argv[]) {
     accum_rt_full += rt_full;
     accum_rt_inc += rt_inc;    
 
+
+    ofs_max_cost << cache_full.back() << '\n';
+    
+
     costs_full.clear();
     costs_inc.clear();
   }
@@ -181,6 +188,7 @@ int main(int argc, char* argv[]) {
     ofs_inc << c << '\n';
   }
 
+
   if (paths_full.size() != 0 && recover_path) {
     for (size_t i = 0; i < paths_full.size(); i++) {
       ofs_pts_full << "---- Path " << i << " ----\n";
@@ -192,6 +200,8 @@ int main(int argc, char* argv[]) {
       paths_inc[i].dump(ofs_pts_inc);
     }
   }
+
+  
 
   std::cout << std::setprecision(3) << "Avg. speedup = " << accum_speedup / num_iters << '\n';
   std::cout << std::setprecision(4) << "Avg. full CPG runtime  = " << accum_rt_full / num_iters << '\n';

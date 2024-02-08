@@ -109,7 +109,7 @@ if(INK_BUILD_CUDA)
   
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "11")
     message(STATUS "CMAKE_CUDA_COMPILER_VERSION: ${CMAKE_CUDA_COMPILER_VERSION}")
-    message(FATAL_ERROR "\nQSat requires CUDA at least v11")
+    message(FATAL_ERROR "\nrequires CUDA at least v11")
   endif()
 endif()  
 
@@ -122,11 +122,11 @@ endif()
 add_subdirectory(ink)
 add_subdirectory(${INK_3RD_PARTY_DIR}/PEGTL)
 add_subdirectory(${INK_3RD_PARTY_DIR}/OpenTimer)
+add_subdirectory(${INK_3RD_PARTY_DIR}/concurrentqueue)
+add_subdirectory(${INK_3RD_PARTY_DIR}/oneTBB)
 add_subdirectory(${INK_EXAMPLE_DIR})
 add_subdirectory(main)
 add_subdirectory(unittests)
-
-
 
 
 # -----------------------------------------------------------------------------

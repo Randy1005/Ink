@@ -1,7 +1,12 @@
 #pragma once
 // #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
+#include <ot/taskflow/taskflow.hpp>
+#include <concurrentqueue.h>
+#include <MPMCQueue.h>
+#include <oneapi/tbb/concurrent_priority_queue.h>
 #define NUM_WEIGHTS 8
+#define AVG_DC_SCALE 1000000
 
 namespace ink {
 
@@ -233,13 +238,14 @@ struct PfxtNode {
 /**
 @brief Prefix Tree
 */
-struct Pfxt {
-	struct PfxtNodeComp {
+struct PfxtNodeComp {
 		bool operator() (
 			const std::unique_ptr<PfxtNode>& a,
-			const std::unique_ptr<PfxtNode>& b) const;
-	};
+			const std::unique_ptr<PfxtNode>& b);
+};
 
+struct Pfxt {
+	
 	Pfxt(const Sfxt& sfxt);
 	Pfxt(Pfxt&& other);
 	Pfxt& operator = (Pfxt&& other) = delete;
@@ -266,10 +272,34 @@ struct Pfxt {
 		PfxtNode* p,
 		std::optional<std::pair<size_t, size_t>> l,
     size_t write_idx);
-	
+
+  void push_par(
+    float c,
+    float dc,
+		size_t f,
+		size_t t,
+		Edge* e,
+		PfxtNode* p,
+		std::optional<std::pair<size_t, size_t>> l  
+  );
+
+  void push_task(
+    const Ink& ink,
+    float c,
+    float dc,
+		size_t f,
+		size_t t,
+		Edge* e,
+		PfxtNode* p,
+		std::optional<std::pair<size_t, size_t>> l  
+  );
 
 	PfxtNode* pop();
-	
+
+  PfxtNode* pop_par();
+
+  PfxtNode* pop_task(size_t q_idx);  
+
 	PfxtNode* top() const;	
   
   void heapify();
@@ -281,12 +311,22 @@ struct Pfxt {
 
 	// path nodes (nodes popped from the heap)
 	std::vector<std::unique_ptr<PfxtNode>> paths;
+  
+  // task queues
+  std::vector<moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>>> task_qs;
+
+  // path nodes (concurrent queue)
+  moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> paths_concurr;
 
 	// nodes (to use as a min heap)
 	std::vector<std::unique_ptr<PfxtNode>> nodes;
 
+  oneapi::tbb::concurrent_priority_queue<std::unique_ptr<PfxtNode>, PfxtNodeComp> par_prq;
+
 	// sources
 	std::vector<PfxtNode*> srcs;
+
+  std::mutex mtx;
 };
 
 
@@ -330,10 +370,12 @@ public:
 		size_t K, 
 		bool save_pfxt_nodes = false,
 		bool recover_paths = true);
+
 	std::vector<Path> report_rebuild(
     size_t K,
     bool recover_paths = true);
-	std::vector<Path> report_incremental(
+	
+  std::vector<Path> report_incremental(
 		size_t K, 
 		bool save_pfxt_nodes = false,
 		bool use_leaders = false,
@@ -344,7 +386,22 @@ public:
 		bool save_pfxt_nodes = false,
 		bool recover_paths = true);
 
-	void dump(std::ostream& os) const;
+  std::vector<Path> report_parallel(
+    size_t K,
+    bool recover_paths = true);
+
+  std::vector<Path> report_async(
+    size_t K,
+    bool recover_paths = true);
+
+  std::vector<Path> report_multiq(
+    float max_dc,
+    size_t K,
+    size_t N,
+    bool recover_paths = true);
+  
+
+  void dump(std::ostream& os) const;
 
 	void dump_pfxt_srcs(std::ostream& os) const;
 
@@ -361,6 +418,9 @@ public:
 
 	std::vector<float> get_path_costs();
 
+  // extract path costs from concurrent queue
+  std::vector<float> get_path_costs_from_cq();
+
   void update_edges_percent(float percent);
 
   void modify_vertex(size_t vid, float offset);
@@ -374,6 +434,41 @@ public:
 	inline size_t num_edges() const {
 		return _edges.size();
 	}
+  
+  template <typename T>
+  inline bool is_in_bounds(const T& val, const T& lo, const T& hi) const {
+    return !(val < lo) && (val < hi);
+  }
+
+  inline size_t determine_q_idx(float c) const {
+    size_t i{0};
+    while (i < bounds.size()) {
+      if (i == 0) {
+        if (is_in_bounds(c, 0.0f, bounds[i])) {
+          break;
+        }
+      }
+      else {
+        if (is_in_bounds(c, bounds[i-1], bounds[i])) {
+          break;
+        }
+      }
+      i++;
+    }
+
+    return i;
+  }
+
+
+  inline void set_num_task_qs(Pfxt& pfxt, size_t N) {
+    pfxt.task_qs.resize(N);
+    bounds.resize(N - 1);
+    auto width = old_max_dc / N;
+    for (size_t i = 0; i < N - 1; i++) {
+      bounds[i] = width * (i + 1);
+      std::cout << "bounds[" << i << "]=" << bounds[i] << '\n';
+    }
+  }
 
 	std::vector<std::array<bool, NUM_WEIGHTS>> belongs_to_sfxt;
 
@@ -388,6 +483,13 @@ public:
 	std::random_device rdev;
 	std::mt19937 rng{rdev()};
 
+  // max cumulative deviation cost from last iteration
+  float old_max_dc{0};
+
+  std::vector<float> bounds;
+  
+  size_t num_task_qs{0};
+  std::atomic<bool> updating_bounds{false};
 
 private:
 	/**
@@ -465,6 +567,20 @@ private:
 		bool use_leaders = false,
 		bool recover_paths = true);
 
+  void _spur_parallel(
+    size_t K,
+    bool recover_paths = true);
+
+  void _spur_async(
+    size_t K,
+    Pfxt& pfxt,
+    bool recover_paths = true);
+  
+  void _spur_multiq(
+    size_t K,
+    Pfxt& pfxt,
+    bool recover_paths = true);
+
   void _mark_pfxt_nodes(Pfxt& pfxt);
 
 
@@ -488,7 +604,16 @@ private:
 	*/
 	void _spur(Pfxt& pfxt, PfxtNode& pfx);
 	
+	/**
+	@brief Spur along the path to generate more pfxt node children, 
+	given a prefix node, until we reach the suffix tree's super target
+	(asynchronous version)
+  */
+	void _spur_async(Pfxt& pfxt, PfxtNode& pfx);
+ 
+	void _spur_multiq(Pfxt& pfxt, PfxtNode& pfx);
   
+
 	/**
 	@brief Spur along the path to generate more pfxt node children, 
 	given a prefix node, until we reach the suffix tree's super target
@@ -510,12 +635,23 @@ private:
 		Pfxt& pfxt, 
 		PfxtNode& pfx, 
 		const std::vector<std::pair<size_t, size_t>>& pruned);
-	
+
+  /**
+  @brief Same spur procedure except we don't maintain a 
+  priority queue
+  */
+  void _spur_no_pq(PfxtNode& pfx, size_t& local_avg);
 
 	/**
 	@brief Construct a prefixt tree from a given suffix tree
 	*/
-	Pfxt _pfxt_cache(const Sfxt& sfxt) const;
+	Pfxt _pfxt_cache(const Sfxt& sfxt);
+  
+  /**
+	@brief Construct a prefixt tree from a given suffix tree
+	*/
+	Pfxt _pfxt_cache_multiq(const Sfxt& sfxt);
+
 
 	/**
 	@brief apply euler tour to identify leader prefix tree nodes, 
@@ -575,8 +711,7 @@ private:
 	
 	void _remove_edge(Edge& e);
 
-
-
+  
 
 
 	/**
@@ -745,6 +880,20 @@ private:
   size_t _rt_cleanup_paths{0};
   size_t _rt_cleanup_nodes{0};
   size_t _rt_spur{0};
+
+  // concurrent queues
+  //rigtorp::MPMCQueue<std::unique_ptr<PfxtNode>> _standbys;
+  //rigtorp::MPMCQueue<std::unique_ptr<PfxtNode>> _paths;
+  moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _standbys;
+  moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _spurred_nodes;
+  moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _tmp_q;
+  
+
+  // atomic path counter
+  std::atomic<size_t> _atom_path_cnt{0};
+
+  // atomic avg. deviation cost
+  std::atomic<size_t> _atom_avg_dc{0};
 
 };
 
