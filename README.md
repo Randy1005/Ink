@@ -1,2 +1,2 @@
-# Ink: Incremental Top-K Critical Path Analysis
+# Ink: Incremental k-Critical Path Generation
 
