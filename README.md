@@ -1,2 +1,2 @@
-# Ink: Incremental k-Critical Path Generation
+# Ink: Efficient Incremental k-Critical Path Generation
 
