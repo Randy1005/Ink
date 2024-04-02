@@ -1,12 +1,11 @@
 #pragma once
-// #include <ot/timer/timer.hpp>
 #include <ot/taskflow/algorithm/reduce.hpp>
 #include <ot/taskflow/taskflow.hpp>
 #include <concurrentqueue.h>
 #include <MPMCQueue.h>
 #include <oneapi/tbb/concurrent_priority_queue.h>
 #define NUM_WEIGHTS 8
-#define AVG_DC_SCALE 1000000
+#define DC_SCALE 10000
 
 namespace ink {
 
@@ -20,6 +19,11 @@ class Ink;
 struct Point;
 struct Path;
 class PathHeap;
+
+enum class PartitionPolicy {
+  EQUAL = 0,
+  GEOMETRIC
+};
 
 /**
 @brief Vertex
@@ -299,6 +303,7 @@ struct Pfxt {
   PfxtNode* pop_par();
 
   PfxtNode* pop_task(size_t q_idx);  
+  std::vector<std::unique_ptr<PfxtNode>> pop_task(size_t q_idx, size_t bulk_size);  
 
 	PfxtNode* top() const;	
   
@@ -396,9 +401,12 @@ public:
 
   std::vector<Path> report_multiq(
     float max_dc,
+    float min_dc,
     size_t K,
     size_t N,
-    bool recover_paths = true);
+    bool recover_paths = true,
+    bool enable_node_redistr = true,
+    bool is_relaxed = false);
   
 
   void dump(std::ostream& os) const;
@@ -463,12 +471,80 @@ public:
   inline void set_num_task_qs(Pfxt& pfxt, size_t N) {
     pfxt.task_qs.resize(N);
     bounds.resize(N - 1);
-    auto width = old_max_dc / N;
-    for (size_t i = 0; i < N - 1; i++) {
-      bounds[i] = width * (i + 1);
-      std::cout << "bounds[" << i << "]=" << bounds[i] << '\n';
+    _width = (old_max_dc - old_min_dc) / N;
+    
+    if (policy == PartitionPolicy::EQUAL) { 
+      for (size_t i = 0; i < N - 1; i++) {
+        bounds[i] = old_min_dc + _width * (i + 1);
+      }
+    }
+    else if (policy == PartitionPolicy::GEOMETRIC) {
+      base = find_base(N);
+      std::cout << "base=" << base << '\n';
+      for (size_t i = 0; i < N - 1; i++) {
+        bounds[i] = old_min_dc + std::pow(base, i + 1);
+        std::cout << "bounds[" << i << "]=" << bounds[i] << '\n';
+      } 
+    
     }
   }
+
+  inline void set_num_workers(size_t n) {
+    _num_workers = n;
+  }
+
+  inline void set_dequeue_bulk_size(size_t n) {
+    _bulk_size = n; 
+  }
+
+  inline float find_base(size_t num_task_qs) {
+    auto base = 1.01f;
+    auto step = 0.01f;
+    auto range = old_max_dc - old_min_dc;
+    for (size_t i = 0; ; i++) {
+      auto p = std::pow(base, num_task_qs);
+      if (p > range) {
+        break;
+      }
+      base += step;
+    }
+    return base; 
+  }
+
+  inline void dump_workloads() const {
+    for (size_t i = 0; i < _total_workloads.size(); i++) {
+      std::cout << "total spur time=" << _total_workloads[i] << " on worker " << i << '\n';
+    }
+  }
+
+  template<typename T, typename OP>
+  T manipulate_bit(std::atomic<T> &a, unsigned n, OP bit_op)
+  {
+      static_assert(std::is_integral<T>::value, "atomic type not integral");
+
+      T val = a.load();
+      while (!a.compare_exchange_weak(val, bit_op(val, n)));
+
+      return val;
+  }
+  
+  std::function<int(int, unsigned)> set_bit{ 
+    [](int val, unsigned n) {
+      return val | (1 << n);
+    } 
+  };
+  
+  std::function<int(int, unsigned)> clr_bit{ 
+    [](int val, unsigned n) {
+      return val & ~(1 << n);
+    } 
+  };
+  
+  std::function<int(int, unsigned)> tgl_bit{ 
+    [](int val, unsigned n) {
+      return val ^ (1 << n);
+    } 
+  };
 
 	std::vector<std::array<bool, NUM_WEIGHTS>> belongs_to_sfxt;
 
@@ -485,11 +561,24 @@ public:
 
   // max cumulative deviation cost from last iteration
   float old_max_dc{0};
+  
+  // max cumulative deviation cost from last iteration
+  float old_min_dc{0};
 
   std::vector<float> bounds;
   
   size_t num_task_qs{0};
   std::atomic<bool> updating_bounds{false};
+  std::atomic<size_t> max_dc_scaled{0};
+
+  bool decay_width{false}; 
+  bool spur_ahead{false};
+  bool async_expand{false};
+  float decay_factor{1.0f};
+  float overgrow_scalar{1.0f};
+  size_t top_k_queues{1};
+  float base{1};
+  PartitionPolicy policy{PartitionPolicy::EQUAL};
 
 private:
 	/**
@@ -579,8 +668,14 @@ private:
   void _spur_multiq(
     size_t K,
     Pfxt& pfxt,
-    bool recover_paths = true);
+    bool recover_paths = true,
+    bool enable_node_redistr = true);
 
+  void _spur_multiq_relaxed(
+    size_t K,
+    Pfxt& pfxt,
+    bool recover_paths = true);
+  
   void _mark_pfxt_nodes(Pfxt& pfxt);
 
 
@@ -611,7 +706,7 @@ private:
   */
 	void _spur_async(Pfxt& pfxt, PfxtNode& pfx);
  
-	void _spur_multiq(Pfxt& pfxt, PfxtNode& pfx);
+	void _spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e);
   
 
 	/**
@@ -790,7 +885,6 @@ private:
 	// index generator : edges
 	IdxGen _idxgen_edge{0};
 
-
 	// taskflow object and executor
 	tf::Taskflow _taskflow;
 	tf::Executor _executor;
@@ -895,6 +989,19 @@ private:
   // atomic avg. deviation cost
   std::atomic<size_t> _atom_avg_dc{0};
 
+  // num workers
+  size_t _num_workers{0};
+
+  // mpmc queue dequeue bulk size
+  // default to 1
+  size_t _bulk_size{1};
+
+  // partition width (for partitioning nodes into multiple mpmc queues)
+  float _width;
+
+  // to record total spur runtimes on each worker
+  std::vector<size_t> _total_workloads;
+  
 };
 
 /**
