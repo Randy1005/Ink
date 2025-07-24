@@ -565,6 +565,116 @@ std::vector<Path> Ink::report_async(
 	return _extract_paths(_all_paths);
 }
 
+
+std::vector<Path> Ink::report_paths_mlq(
+  float delta,
+  size_t K,
+  size_t num_queues,
+  bool ensure_exact) {
+	if (K == 0) {
+  	return {};
+  }
+
+	// clear endpoints
+	_endpoints.clear();
+
+	// add dst vertices to the endpoints
+	for (const auto v: _vptrs) {
+		if (v && v->is_dst()) {
+			_endpoints.emplace_back(*v, 0.0f);
+		}
+	}
+
+
+	// build suffix tree
+	_sfxt_rebuild();
+
+	// get reference to suffix tree
+	auto& sfxt = *_global_sfxt;
+	assert(sfxt.dist());
+
+	// initalize prefix tree from source vertices
+	Pfxt pfxt(sfxt);
+
+	// initialize the MLQs
+	// pfxt.task_qs.resize(num_queues);
+	// assert(!pfxt.task_qs.empty());
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>> tbb_task_vecs(num_queues);
+	bounds.resize(num_queues);
+
+	// generate and sort the src prefixes to determine the bounds for MLQs
+	std::vector<std::unique_ptr<PfxtNode>> src_pfxs;
+	for (const auto& [src, w]: sfxt.srcs) {
+		if (!w || !sfxt.dists[src]) {
+			continue;
+		}
+		auto cost = *sfxt.dists[src]+*w;
+		src_pfxs.emplace_back(
+			std::make_unique<PfxtNode>(
+				cost, *w, sfxt.S,
+				src, nullptr, nullptr,
+				std::nullopt)
+		);
+	}
+
+	std::sort(
+		std::execution::par_unseq,
+		src_pfxs.begin(),
+		src_pfxs.end(),
+		[] (const auto& a, const auto& b) {
+			return a->cost < b->cost;
+		});
+
+
+	// use the 0.5% percentile cost as the bound for
+	// the first queue
+	size_t num_src_pfxs = src_pfxs.size();
+	size_t top = num_src_pfxs*0.005f;
+	size_t bottom = num_src_pfxs-top;
+	auto bound = src_pfxs[top]->cost;
+
+	std::cout << "top=" << top << ", bottom=" << bottom
+	          << ", bound=" << bound << '\n';
+
+	// initialize the bounds for each queue
+	bounds.front() = bound;
+	for (size_t i = 1; i < num_queues-1; i++) {
+		bounds[i] = bounds[i-1]+delta;
+	}
+	bounds.back() = std::numeric_limits<float>::max();
+
+
+	// place the src prefixes into their respective queues
+	std::for_each(
+		std::execution::par_unseq,
+		src_pfxs.begin(),
+		src_pfxs.end(),
+		[&](auto& pfx) {
+			size_t idx = 0;
+			for (; idx < num_queues; idx++) {
+				if (pfx->cost < bounds[idx]) {
+					break;
+				}
+			}
+			assert(idx < num_queues);
+			assert(pfx);
+			tbb_task_vecs[idx].push_back(std::move(pfx));
+		});
+	
+	src_pfxs.clear();
+
+
+	_spur_mlq(
+		K, 
+		pfxt, 
+		delta, 
+		tbb_task_vecs, 
+		ensure_exact);
+
+	return {};
+}
+
+
 std::vector<Path> Ink::report_multiq(
   float max_dc,
 	float min_dc,
@@ -788,13 +898,31 @@ std::vector<float> Ink::get_path_costs() {
 
 std::vector<float> Ink::get_path_costs_from_cq() {
   std::vector<float> costs;
-  while (_spurred_nodes.size_approx() != 0) {
+  while (_spurred_nodes.size_approx() > 0) {
     std::unique_ptr<PfxtNode> node;
     _spurred_nodes.try_dequeue(node);
     costs.push_back(node->cost);
   }
   std::sort(costs.begin(), costs.end());
   return costs;
+}
+
+std::vector<float> Ink::get_path_costs_from_tbb_cv() {
+	std::sort(
+		std::execution::par_unseq,
+		_tbb_cv_paths.begin(),
+		_tbb_cv_paths.end(),
+		[] (const auto& a, const auto& b) {
+			return a->cost < b->cost;
+		});
+	
+	std::vector<float> costs(_tbb_cv_paths.size());
+
+	for (size_t i = 0; i < _tbb_cv_paths.size(); i++) {
+		costs[i] = _tbb_cv_paths[i]->cost;
+	}
+
+	return costs;
 }
 
 void Ink::update_edges_percent(float percent) {
@@ -1499,6 +1627,135 @@ void Ink::_spur_async(
 	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
 }
 
+void Ink::_spur_mlq(
+	size_t K,
+	Pfxt& pfxt,
+	float delta,
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
+	bool ensure_exact) {
+	size_t path_cnt{0};
+	bool done{false};
+	
+	size_t num_vecs{tbb_task_vecs.size()};
+	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> 
+		windows(num_vecs-1);
+
+	// initialize windows
+	for (size_t i = 0; i < num_vecs-1; i++) {
+	  windows[i].first.store(0);
+  	windows[i].second.store(tbb_task_vecs[i].size());
+	}
+
+	while (!done) {
+		for (size_t id = 0; id < num_vecs-1; id++) {
+			auto wbeg = windows[id].first.load();
+			auto wend = windows[id].second.load();
+			while (wbeg < wend) {
+				// std::cout << "wbeg=" << wbeg << ", wend=" << wend << '\n';
+				std::for_each(
+					std::execution::par_unseq,
+					tbb_task_vecs[id].begin()+wbeg,
+					tbb_task_vecs[id].begin()+wend,
+					[&](auto& pfx) {
+						assert(pfx);
+
+						// spur this node
+						_spur_tbb_task_vecs(
+							pfxt,
+							*pfx.get(),
+							tbb_task_vecs,
+							windows);
+
+						// transfer ownership to path set
+						_tbb_cv_paths.push_back(std::move(pfx));
+					});
+
+				// update path count
+				path_cnt += (wend-wbeg);
+
+				// update window
+				wbeg += (wend-wbeg);
+				wend = tbb_task_vecs[id].size();
+			}
+			
+			// update window
+			assert(wbeg == wend);
+			windows[id].first.store(wbeg);
+			windows[id].second.store(wend);
+
+			// std::cout << "path_cnt=" << path_cnt << '\n';
+		
+			if (path_cnt >= K) {
+				done = true;
+				break;
+			}
+		}
+
+		if (!done) {
+			size_t num_promoted{0};
+			
+			while (num_promoted == 0) {
+			  // update bounds
+			  std::for_each(
+			  	std::execution::par_unseq,
+			  	bounds.begin(),
+			  	bounds.begin()+num_vecs-1,
+			  	[&](auto& b) {
+			  		b += delta;
+			  	});
+				
+				// count the number of promoted nodes in last queue
+				num_promoted = std::count_if(
+					tbb_task_vecs.back().begin(),
+					tbb_task_vecs.back().end(),
+					[&](const auto& pfx) {
+						assert(pfx);
+						return pfx->cost <= bounds[num_vecs-2];
+					});
+				
+				// std::cout << "num_promoted=" << num_promoted << '\n';
+			}
+			
+
+			// reassign last-queue nodes to their corresponding vecs
+			std::for_each(
+				std::execution::par_unseq,
+				tbb_task_vecs.back().begin(),
+				tbb_task_vecs.back().end(),
+				[&](auto& pfx) {
+					assert(pfx);
+					auto qid = determine_q_idx(pfx->cost);
+					if (qid == num_vecs-1) {
+						// this node is not promoted
+						return;
+					}
+					tbb_task_vecs[qid].push_back(std::move(pfx));
+					assert(!pfx);
+				});
+
+			// remove null nodes and downsize
+			std::remove_if(
+				tbb_task_vecs.back().begin(),
+				tbb_task_vecs.back().end(),
+				[](const auto& pfx) {
+					return !pfx;
+				});
+
+			tbb_task_vecs.back().resize(
+				tbb_task_vecs.back().size()-num_promoted);
+
+
+			// update window end
+			for (size_t i = 0; i < num_vecs-1; i++) {
+				windows[i].second.store(tbb_task_vecs[i].size());
+			}
+			
+		}
+	}
+
+}
+
+
 void Ink::_spur_multiq(
 	size_t K,
   Pfxt& pfxt, 
@@ -1577,8 +1834,8 @@ void Ink::_spur_multiq(
       // the lowest priority, we should update
       // the bounds and redistribute the nodes 
       if (q_id == num_task_qs - 1 && enable_node_redistr) {
-        bool expected{false};
-        if (!updating_bounds.compare_exchange_weak(expected, true)) {
+        bool e1{false};
+        if (!updating_bounds.compare_exchange_weak(e1, true)) {
           return;
         }
         redistr_cnt++;
@@ -1595,6 +1852,13 @@ void Ink::_spur_multiq(
           } 
         }
        
+        updating_bounds = false;
+        
+        bool e2{false};
+        if (!redistributing.compare_exchange_weak(e2, true)) {
+          return;
+        }
+        
         // move candidate nodes to a temp. storage 
         _tmp_q = std::move(pfxt.task_qs[q_id]);
 
@@ -1607,7 +1871,8 @@ void Ink::_spur_multiq(
         }
 
         // unlock critical section
-        updating_bounds = false;
+        redistributing = false;
+        
         return;
       }
       
@@ -2339,7 +2604,53 @@ void Ink::_spur_async(Pfxt& pfxt, PfxtNode& pfx) {
   _executor.wait_for_all();
 }
 
-void Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
+size_t Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
+	auto u = pfx.to;
+	size_t spur_cnt{0};
+  while (u != pfxt.sfxt.T) {
+		auto uptr = _vptrs[u];
+    for (auto edge : uptr->fanout) {
+      for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+        if (!edge->weights[w_sel]) {
+          continue;
+        }
+
+        // skip if the edge goes outside of the suffix tree
+        // which is unreachable
+        auto v = edge->to.id;
+        if (!pfxt.sfxt.dists[v]) {
+          continue;
+        }
+
+        // skip if the edge belongs to the suffix 
+        // NOTE: we're detouring, so we don't want to
+        // go on the same paths explored by the suffix tree
+        if (pfxt.sfxt.links[u] &&
+            _encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+          continue;
+        }
+      
+        auto w = *edge->weights[w_sel];
+        auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
+        auto c = detour_cost + pfx.cost;
+        auto dc = detour_cost + pfx.detour_cost;
+        spur_cnt++;
+        pfxt.push_task(*this, c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
+      }
+    }
+
+		u = *pfxt.sfxt.successors[u];
+	}
+	return spur_cnt;
+}
+
+
+void Ink::_spur_tbb_task_vecs(
+	Pfxt& pfxt, 
+	PfxtNode& pfx, 
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
+	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>>& windows) {
+
 	auto u = pfx.to;
   while (u != pfxt.sfxt.T) {
 		auto uptr = _vptrs[u];
@@ -2368,14 +2679,25 @@ void Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
         auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
         auto c = detour_cost + pfx.cost;
         auto dc = detour_cost + pfx.detour_cost;
-        
-        pfxt.push_task(*this, c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel));
-      }
-    }
 
+				// determine vec id
+				// TODO: can be implemented more efficient since
+				// we only spur nodes that have costs larger than
+				// the current queue
+				auto vec_id = determine_q_idx(c);
+
+				// push to the corresponding task vector
+				task_vecs[vec_id].push_back(
+					std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel)));
+      
+				// update window
+				// windows[vec_id].second++;
+			}
+    }
 		u = *pfxt.sfxt.successors[u];
 	}
 }
+
 
 
 
@@ -2858,6 +3180,7 @@ PfxtNode* Pfxt::pop_task(size_t q_idx) {
   if (task_qs[q_idx].try_dequeue(node)) {
     auto obs = node.get();
     paths_concurr.enqueue(std::move(node));
+		assert(obs != nullptr);
     return obs;
   }
   

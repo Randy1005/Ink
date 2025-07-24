@@ -4,6 +4,11 @@
 #include <concurrentqueue.h>
 #include <MPMCQueue.h>
 #include <oneapi/tbb/concurrent_priority_queue.h>
+#include <oneapi/tbb/concurrent_queue.h>
+#include <oneapi/tbb/concurrent_vector.h>
+#include <algorithm>
+#include <execution>
+
 #define NUM_WEIGHTS 8
 #define DC_SCALE 10000
 
@@ -407,6 +412,12 @@ public:
     bool recover_paths = true,
     bool enable_node_redistr = true,
     bool is_relaxed = false);
+
+  std::vector<Path> report_paths_mlq(
+    float delta,
+    size_t K,
+    size_t num_queues,
+    bool ensure_exact);
   
 
   void dump(std::ostream& os) const;
@@ -429,6 +440,9 @@ public:
   // extract path costs from concurrent queue
   std::vector<float> get_path_costs_from_cq();
 
+  // extract path costs from tbb concurrent vector
+  std::vector<float> get_path_costs_from_tbb_cv();
+
   void update_edges_percent(float percent);
 
   void modify_vertex(size_t vid, float offset);
@@ -445,14 +459,14 @@ public:
   
   template <typename T>
   inline bool is_in_bounds(const T& val, const T& lo, const T& hi) const {
-    return !(val < lo) && (val < hi);
+    return (val > lo) && (val <= hi);
   }
 
   inline size_t determine_q_idx(float c) const {
     size_t i{0};
     while (i < bounds.size()) {
       if (i == 0) {
-        if (is_in_bounds(c, 0.0f, bounds[i])) {
+        if (c < bounds[i]) {
           break;
         }
       }
@@ -569,6 +583,7 @@ public:
   
   size_t num_task_qs{0};
   std::atomic<bool> updating_bounds{false};
+  std::atomic<bool> redistributing{false};
   std::atomic<size_t> max_dc_scaled{0};
 
   bool decay_width{false}; 
@@ -580,6 +595,7 @@ public:
   float base{1};
   PartitionPolicy policy{PartitionPolicy::EQUAL};
 
+  std::array<std::atomic<size_t>, 160> q_hist;
 private:
 	/**
 	@brief Index Generator
@@ -671,6 +687,21 @@ private:
     bool recover_paths = true,
     bool enable_node_redistr = true);
 
+	void _spur_mlq(
+		size_t K,
+		Pfxt& pfxt,
+		float delta,
+		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
+		bool ensure_exact
+	);
+
+	void _spur_tbb_task_vecs(
+		Pfxt& pfxt, 
+		PfxtNode& pfx, 
+		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
+		std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>>& windows);
+
+
   void _spur_multiq_relaxed(
     size_t K,
     Pfxt& pfxt,
@@ -706,7 +737,7 @@ private:
   */
 	void _spur_async(Pfxt& pfxt, PfxtNode& pfx);
  
-	void _spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e);
+	size_t _spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e);
   
 
 	/**
@@ -981,7 +1012,7 @@ private:
   moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _standbys;
   moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _spurred_nodes;
   moodycamel::ConcurrentQueue<std::unique_ptr<PfxtNode>> _tmp_q;
-  
+ 
 
   // atomic path counter
   std::atomic<size_t> _atom_path_cnt{0};
@@ -1001,7 +1032,10 @@ private:
 
   // to record total spur runtimes on each worker
   std::vector<size_t> _total_workloads;
-  
+
+  // paths from tbb concurrent vector
+  tbb::concurrent_vector<std::unique_ptr<PfxtNode>> _tbb_cv_paths;
+
 };
 
 /**
