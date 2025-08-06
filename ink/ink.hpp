@@ -6,8 +6,11 @@
 #include <oneapi/tbb/concurrent_priority_queue.h>
 #include <oneapi/tbb/concurrent_queue.h>
 #include <oneapi/tbb/concurrent_vector.h>
+#include <oneapi/tbb/parallel_for_each.h>
+#include <oneapi/tbb/task_arena.h>
 #include <algorithm>
 #include <execution>
+#include "timer.hpp"
 
 #define NUM_WEIGHTS 8
 #define DC_SCALE 10000
@@ -416,8 +419,8 @@ public:
   std::vector<Path> report_paths_mlq(
     float delta,
     size_t K,
-    size_t num_queues,
-    bool ensure_exact);
+    size_t num_vecs,
+		std::optional<size_t> num_workers = std::nullopt);
   
 
   void dump(std::ostream& os) const;
@@ -448,6 +451,28 @@ public:
   void modify_vertex(size_t vid, float offset);
 
   std::vector<std::reference_wrapper<Edge>> find_chain_edges();
+
+	void convert_gpathgen_benchmark_to_edge_insertions(
+		const std::string& infile, 
+		const std::string& outfile);
+
+	void reset() {
+		// clear all paths
+		_all_paths.clear();
+		// clear all path costs
+		_all_path_costs.clear();
+
+		_tbb_cv_paths.clear();
+
+		// reset sfxt
+		_global_sfxt.reset();
+
+		// reset pfxt
+		_pfxt_srcs.clear();
+
+		_pfxt_nodes.clear();
+		_pfxt_paths.clear();
+	}
 
 	inline size_t num_verts() const {
 		return _name2v.size();
@@ -596,6 +621,12 @@ public:
   PartitionPolicy policy{PartitionPolicy::EQUAL};
 
   std::array<std::atomic<size_t>, 160> q_hist;
+
+	std::chrono::duration<double, std::micro> sfxt_time{0};
+	std::chrono::duration<double, std::micro> pfxt_time{0};
+
+	size_t num_steps{0};
+	std::vector<size_t> accum_path_cnt_per_step;
 private:
 	/**
 	@brief Index Generator
@@ -692,15 +723,13 @@ private:
 		Pfxt& pfxt,
 		float delta,
 		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
-		bool ensure_exact
-	);
+		std::optional<size_t> num_workers = std::nullopt);
 
 	void _spur_tbb_task_vecs(
-		Pfxt& pfxt, 
-		PfxtNode& pfx, 
-		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
-		std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>>& windows);
-
+		Pfxt& pfxt,
+		PfxtNode& pfx,
+		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs
+	);
 
   void _spur_multiq_relaxed(
     size_t K,

@@ -36,6 +36,12 @@ target_link_libraries(ink PRIVATE Threads::Threads)
 target_link_libraries(ink PUBLIC OpenTimer)
 target_link_libraries(ink PUBLIC std::filesystem)
 
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(ink PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # find oneTBB library
 find_package(TBB REQUIRED)
 target_link_libraries(ink PUBLIC TBB::tbb)

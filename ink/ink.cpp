@@ -466,15 +466,14 @@ std::vector<Path> Ink::report_rebuild(
 	}
 
 	PathHeap heap;
-	auto beg = std::chrono::steady_clock::now();
-  _sfxt_rebuild();
-  auto end = std::chrono::steady_clock::now();
-  sfxt_update_time =  
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	Timer timer;
+	timer.start();
+	_sfxt_rebuild();
+	timer.stop();
+	sfxt_time = timer.get_elapsed_time();
   _spur_rebuild(K, heap, recover_paths);	
 
 
-  full_time = sfxt_update_time + pfxt_expansion_time;
 
 	// report complete, clear the update list
 	_clear_update_list();		
@@ -569,8 +568,9 @@ std::vector<Path> Ink::report_async(
 std::vector<Path> Ink::report_paths_mlq(
   float delta,
   size_t K,
-  size_t num_queues,
-  bool ensure_exact) {
+  size_t num_vecs,
+	std::optional<size_t> num_workers) {
+
 	if (K == 0) {
   	return {};
   }
@@ -587,7 +587,11 @@ std::vector<Path> Ink::report_paths_mlq(
 
 
 	// build suffix tree
+	Timer timer;
+	timer.start();
 	_sfxt_rebuild();
+	timer.stop();
+	sfxt_time = timer.get_elapsed_time();
 
 	// get reference to suffix tree
 	auto& sfxt = *_global_sfxt;
@@ -597,10 +601,8 @@ std::vector<Path> Ink::report_paths_mlq(
 	Pfxt pfxt(sfxt);
 
 	// initialize the MLQs
-	// pfxt.task_qs.resize(num_queues);
-	// assert(!pfxt.task_qs.empty());
-	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>> tbb_task_vecs(num_queues);
-	bounds.resize(num_queues);
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>> tbb_task_vecs(num_vecs);
+	bounds.resize(num_vecs);
 
 	// generate and sort the src prefixes to determine the bounds for MLQs
 	std::vector<std::unique_ptr<PfxtNode>> src_pfxs;
@@ -633,16 +635,18 @@ std::vector<Path> Ink::report_paths_mlq(
 	size_t bottom = num_src_pfxs-top;
 	auto bound = src_pfxs[top]->cost;
 
-	std::cout << "top=" << top << ", bottom=" << bottom
-	          << ", bound=" << bound << '\n';
-
 	// initialize the bounds for each queue
 	bounds.front() = bound;
-	for (size_t i = 1; i < num_queues-1; i++) {
+	for (size_t i = 1; i < num_vecs-1; i++) {
 		bounds[i] = bounds[i-1]+delta;
 	}
 	bounds.back() = std::numeric_limits<float>::max();
 
+	// std::cout << "initial bounds: ";
+	// for (size_t i = 0; i < num_vecs; i++) {
+	// 	std::cout << bounds[i] << ' ';
+	// }
+	// std::cout << '\n';
 
 	// place the src prefixes into their respective queues
 	std::for_each(
@@ -650,26 +654,26 @@ std::vector<Path> Ink::report_paths_mlq(
 		src_pfxs.begin(),
 		src_pfxs.end(),
 		[&](auto& pfx) {
+			assert(pfx);
 			size_t idx = 0;
-			for (; idx < num_queues; idx++) {
-				if (pfx->cost < bounds[idx]) {
+			for (; idx < num_vecs; idx++) {
+				if (pfx->cost <= bounds[idx]) {
 					break;
 				}
 			}
-			assert(idx < num_queues);
-			assert(pfx);
+			assert(idx < num_vecs);
 			tbb_task_vecs[idx].push_back(std::move(pfx));
+			assert(!pfx);
 		});
 	
 	src_pfxs.clear();
-
 
 	_spur_mlq(
 		K, 
 		pfxt, 
 		delta, 
-		tbb_task_vecs, 
-		ensure_exact);
+		tbb_task_vecs,
+		num_workers);
 
 	return {};
 }
@@ -707,8 +711,14 @@ std::vector<Path> Ink::report_multiq(
   old_max_dc = max_dc;
   old_min_dc = min_dc;
   num_task_qs = N;
-  
+ 
+	Timer timer;
+	timer.start();
   _sfxt_cache();
+	timer.stop();
+	sfxt_time = timer.get_elapsed_time();
+
+	// get reference to suffix tree
 	auto& sfxt = *_global_sfxt;
   auto pfxt = _pfxt_cache_multiq(sfxt);
   if (is_relaxed) {
@@ -1010,6 +1020,64 @@ std::vector<std::reference_wrapper<Edge>> Ink::find_chain_edges() {
 
   return erefs;
 }
+
+
+void Ink::convert_gpathgen_benchmark_to_edge_insertions(
+	const std::string& infile,
+	const std::string& outfile) {
+	std::ifstream ifs(infile);
+	if (!ifs) {
+		throw std::runtime_error("Failed to open file: " + infile);
+	}
+
+	// first line is number of vertices
+	std::string line;
+	std::getline(ifs, line);
+	size_t num_verts = std::stoul(line);
+	// then skip the next |V| lines, they are just vertex names
+	for (size_t i = 0; i < num_verts; i++) {
+		std::getline(ifs, line);
+	}
+
+	// then the edge list starts
+	std::ofstream ofs(outfile);
+	if (!ofs) {
+		throw std::runtime_error("Failed to open file: " + outfile);
+	}
+
+	// start reading edges
+	while (ifs) {
+		std::getline(ifs, line);
+		if (line.empty()) {
+			continue;
+		}
+
+		// the line format is:
+		// "from" -> "to", weight;
+		// e.g., "0" -> "2", 1.2;
+		std::replace(line.begin(), line.end(), '"', ' ');
+		std::replace(line.begin(), line.end(), '-', ' ');
+		std::replace(line.begin(), line.end(), '>', ' ');
+		std::replace(line.begin(), line.end(), ',', ' ');
+		std::istringstream iss(line);
+		std::string from, to;
+		float weight;
+		iss >> from >> to >> weight;
+		if (iss.fail()) {
+			std::cerr << "Failed to parse line: " << line << '\n';
+			continue;
+		}
+
+		ofs << "insert_edge "
+		    << from << ' '
+		    << to << ' '
+		    << weight << ' '
+				<< "n/a n/a n/a n/a n/a n/a n/a\n";
+
+	}
+	ofs.close();
+	ifs.close();
+}	
 
 
 void Ink::_read_ops(std::istream& is, std::ostream& os) {
@@ -1483,7 +1551,8 @@ void Ink::_spur_incsfxt(
 	bool save_pfxt_nodes,
 	bool recover_paths) {
 	
-  auto beg = std::chrono::steady_clock::now();
+	Timer timer;
+	timer.start();	
   auto& sfxt = *_global_sfxt;
   while (!pfxt.num_nodes() == 0) {
     auto node = pfxt.pop();
@@ -1506,7 +1575,7 @@ void Ink::_spur_incsfxt(
 		}
 		else {
       _all_path_costs.push_back(node->cost);
-    }
+		}
 		
     
     if (_all_paths.size() >= K || _all_path_costs.size() >= K) {
@@ -1514,9 +1583,8 @@ void Ink::_spur_incsfxt(
 		}
   }
 
-  auto end = std::chrono::steady_clock::now();
-  pfxt_expansion_time = 
-	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	timer.stop();
+	pfxt_time = timer.get_elapsed_time();
 
   if (save_pfxt_nodes) {
 		_pfxt_srcs = std::move(pfxt.srcs);
@@ -1632,127 +1700,163 @@ void Ink::_spur_mlq(
 	Pfxt& pfxt,
 	float delta,
 	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
-	bool ensure_exact) {
+	std::optional<size_t> num_workers) {
 	size_t path_cnt{0};
 	bool done{false};
-	
 	size_t num_vecs{tbb_task_vecs.size()};
 	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> 
 		windows(num_vecs-1);
+	tbb::task_arena arena(
+		num_workers.value_or(oneapi::tbb::this_task_arena::max_concurrency()));
 
-	// initialize windows
-	for (size_t i = 0; i < num_vecs-1; i++) {
-	  windows[i].first.store(0);
-  	windows[i].second.store(tbb_task_vecs[i].size());
-	}
+	// reset steps
+	num_steps = 0;
+	accum_path_cnt_per_step.clear();
+	accum_path_cnt_per_step.emplace_back(0);
+
+	Timer timer;
+	timer.start();
 
 	while (!done) {
-		for (size_t id = 0; id < num_vecs-1; id++) {
-			auto wbeg = windows[id].first.load();
-			auto wend = windows[id].second.load();
-			while (wbeg < wend) {
-				// std::cout << "wbeg=" << wbeg << ", wend=" << wend << '\n';
-				std::for_each(
-					std::execution::par_unseq,
-					tbb_task_vecs[id].begin()+wbeg,
-					tbb_task_vecs[id].begin()+wend,
-					[&](auto& pfx) {
-						assert(pfx);
+	 	for (size_t id = 0; id < num_vecs-1; id++) {
+			// initialize the window before spur
+			// other vecs may have pushed new tasks into this vec
+			windows[id].first.store(0);
+			windows[id].second.store(tbb_task_vecs[id].size());
 
-						// spur this node
-						_spur_tbb_task_vecs(
-							pfxt,
-							*pfx.get(),
-							tbb_task_vecs,
-							windows);
+	 		auto wbeg = windows[id].first.load();
+	 		auto wend = windows[id].second.load();
+	 		while (wbeg < wend) {
+	 			// std::cout << "wbeg=" << wbeg << ", wend=" << wend << '\n';
+				arena.execute([&] {
+					oneapi::tbb::parallel_for_each(
+						tbb_task_vecs[id].begin()+wbeg,
+						tbb_task_vecs[id].begin()+wend,
+						[&](auto& pfx) {
+							assert(pfx);
 
-						// transfer ownership to path set
-						_tbb_cv_paths.push_back(std::move(pfx));
-					});
+							// spur this node
+							_spur_tbb_task_vecs(
+								pfxt,
+								*pfx.get(),
+								tbb_task_vecs);
 
-				// update path count
-				path_cnt += (wend-wbeg);
+							// transfer ownership to path set
+							_tbb_cv_paths.push_back(std::move(pfx));
+							assert(!pfx);
+						});
+				});
 
-				// update window
-				wbeg += (wend-wbeg);
-				wend = tbb_task_vecs[id].size();
-			}
-			
-			// update window
-			assert(wbeg == wend);
-			windows[id].first.store(wbeg);
-			windows[id].second.store(wend);
+	 			// update path count
+	 			path_cnt += (wend-wbeg);
 
-			// std::cout << "path_cnt=" << path_cnt << '\n';
-		
-			if (path_cnt >= K) {
-				done = true;
-				break;
-			}
-		}
+	 			// update window
+	 			wbeg += (wend-wbeg);
+	 			wend = tbb_task_vecs[id].size();
+	 		}
+	 	
+			// all tasks in this vec are done
+	 		assert(wbeg == wend);
 
-		if (!done) {
-			size_t num_promoted{0};
-			
-			while (num_promoted == 0) {
-			  // update bounds
-			  std::for_each(
-			  	std::execution::par_unseq,
-			  	bounds.begin(),
-			  	bounds.begin()+num_vecs-1,
-			  	[&](auto& b) {
-			  		b += delta;
-			  	});
-				
-				// count the number of promoted nodes in last queue
-				num_promoted = std::count_if(
+			// clear this vec and reset window
+			tbb_task_vecs[id].clear();
+			windows[id].first.store(0);
+			windows[id].second.store(0);
+	 	
+	 		if (path_cnt >= K) {
+	 			done = true;
+	 			break;
+	 		}
+	 	}
+
+	 	if (!done) {
+	 		size_t num_promoted{0};
+	 	
+	 		// make sure we increase the bounds enough
+	 		// to promote at least some nodes
+	 		while (num_promoted == 0) {
+	 		  // update bound of first vec
+				bounds.front() = bounds[num_vecs-2]+delta;
+				// update bounds of all other vecs
+				for (size_t i = 1; i < num_vecs-1; i++) {
+					bounds[i] = bounds[i-1]+delta;
+				}
+							 			
+	 			// count the number of promoted nodes in last queue
+	 			num_promoted = std::count_if(
+	 				std::execution::par_unseq,
+	 				tbb_task_vecs.back().begin(),
+	 				tbb_task_vecs.back().end(),
+	 				[&](const auto& pfx) {
+	 					assert(pfx);
+	 					return pfx->cost <= bounds[num_vecs-2];
+	 				});
+	 		}
+
+			// print bounds
+			// std::cout << "updated bounds: ";
+			// for (const auto& b: bounds) {
+			// 	std::cout << b << ' ';
+			// }
+			// std::cout << '\n';
+
+	 		// reassign last-queue nodes to their corresponding vecs
+			arena.execute([&] {
+				oneapi::tbb::parallel_for_each(
 					tbb_task_vecs.back().begin(),
 					tbb_task_vecs.back().end(),
-					[&](const auto& pfx) {
+					[&](auto& pfx) {
 						assert(pfx);
-						return pfx->cost <= bounds[num_vecs-2];
+						size_t idx{0};
+						for (; idx < num_vecs; idx++) {
+							if (pfx->cost <= bounds[idx]) {
+								break;
+							}
+						}
+						assert(idx < num_vecs);
+						if (idx == num_vecs-1) {
+							// this node is not promoted, leave it in the last vec
+							return;
+						}
+
+						tbb_task_vecs[idx].push_back(std::move(pfx));
+						assert(!pfx);
 					});
-				
-				// std::cout << "num_promoted=" << num_promoted << '\n';
-			}
-			
+			});
 
-			// reassign last-queue nodes to their corresponding vecs
-			std::for_each(
-				std::execution::par_unseq,
+	 		// remove null nodes and downsize
+	 		auto end = std::remove_if(
+	 			std::execution::par_unseq,
+	 			tbb_task_vecs.back().begin(),
+	 			tbb_task_vecs.back().end(),
+	 			[](auto& pfx) {
+	 				return !pfx;
+	 			});
+
+			auto new_size = std::distance(
 				tbb_task_vecs.back().begin(),
-				tbb_task_vecs.back().end(),
-				[&](auto& pfx) {
-					assert(pfx);
-					auto qid = determine_q_idx(pfx->cost);
-					if (qid == num_vecs-1) {
-						// this node is not promoted
-						return;
-					}
-					tbb_task_vecs[qid].push_back(std::move(pfx));
-					assert(!pfx);
-				});
+				end);
+			assert(new_size == tbb_task_vecs.back().size()-num_promoted);
 
-			// remove null nodes and downsize
-			std::remove_if(
-				tbb_task_vecs.back().begin(),
-				tbb_task_vecs.back().end(),
-				[](const auto& pfx) {
-					return !pfx;
-				});
+	 		tbb_task_vecs.back().resize(new_size);
 
-			tbb_task_vecs.back().resize(
-				tbb_task_vecs.back().size()-num_promoted);
-
-
-			// update window end
-			for (size_t i = 0; i < num_vecs-1; i++) {
-				windows[i].second.store(tbb_task_vecs[i].size());
-			}
-			
-		}
+	 		// update window end
+			arena.execute([&] {
+				oneapi::tbb::parallel_for_each(
+					windows.begin(),
+					windows.end(),
+					[&](auto& win) {
+						size_t idx = &win-&windows[0];
+						win.second.store(tbb_task_vecs[idx].size());
+					});
+			});
+	 	}
+		num_steps++;
+		accum_path_cnt_per_step.emplace_back(path_cnt);
 	}
 
+	timer.stop();
+	pfxt_time = timer.get_elapsed_time();
 }
 
 
@@ -1789,7 +1893,8 @@ void Ink::_spur_multiq(
   //  std::cout << "spur_ahead enabled.\n";
   //}
 
-  auto beg = std::chrono::steady_clock::now();  
+	Timer timer;
+	timer.start();
   auto& sfxt = *_global_sfxt;
   // TODO: how would we know if the N queues are "really" empty and
   // stop the loop? In real benchmarks, it's extremely unlikely to
@@ -1908,11 +2013,10 @@ void Ink::_spur_multiq(
   }
   executor.wait_for_all();
 
-  auto end = std::chrono::steady_clock::now();  
-  pfxt_expansion_time = 
-	  std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
-  _spurred_nodes = std::move(pfxt.paths_concurr); 
-  //std::cout << "redistributed tasks " << redistr_cnt << " times.\n";
+	timer.stop();
+	pfxt_time = timer.get_elapsed_time();
+
+	_spurred_nodes = std::move(pfxt.paths_concurr); 
 }
 
 void Ink::_spur_multiq_relaxed(
@@ -2457,7 +2561,8 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
  	auto& sfxt = *_global_sfxt;
 	auto pfxt = _pfxt_cache(sfxt);
 
-	auto beg = std::chrono::steady_clock::now();
+	Timer timer;
+	timer.start();
 	while (!pfxt.num_nodes() == 0) {
 		auto node = pfxt.pop();
 		// no more paths to generate
@@ -2486,9 +2591,8 @@ void Ink::_spur_rebuild(size_t K, PathHeap& heap, bool recover_paths) {
 		// expand search space
 		_spur(pfxt, *node);
 	}
-	auto end = std::chrono::steady_clock::now();
-	pfxt_expansion_time = 
-		std::chrono::duration_cast<std::chrono::nanoseconds>(end-beg).count();
+	timer.stop();
+	pfxt_time = timer.get_elapsed_time();
 } 
 
 void Ink::_spur(Point& endpt, size_t K, PathHeap& heap) {
@@ -2648,8 +2752,7 @@ size_t Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
 void Ink::_spur_tbb_task_vecs(
 	Pfxt& pfxt, 
 	PfxtNode& pfx, 
-	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
-	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>>& windows) {
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs) {
 
 	auto u = pfx.to;
   while (u != pfxt.sfxt.T) {
@@ -2684,14 +2787,17 @@ void Ink::_spur_tbb_task_vecs(
 				// TODO: can be implemented more efficient since
 				// we only spur nodes that have costs larger than
 				// the current queue
-				auto vec_id = determine_q_idx(c);
+				size_t vec_id{0};
+				for (; vec_id < task_vecs.size()-1; vec_id++) {
+					if (c < bounds[vec_id]) {
+						break;
+					}
+				}
+				assert(vec_id < task_vecs.size());
 
 				// push to the corresponding task vector
 				task_vecs[vec_id].push_back(
 					std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel)));
-      
-				// update window
-				// windows[vec_id].second++;
 			}
     }
 		u = *pfxt.sfxt.successors[u];
