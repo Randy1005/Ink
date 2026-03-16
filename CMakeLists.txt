@@ -9,7 +9,7 @@ project(Ink VERSION 1.0 LANGUAGES C CXX)
 
 
 # set everything up for c++XX features
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 # set(CMAKE_CUDA_ARCHITECTURES 75)
 
 
@@ -63,10 +63,17 @@ message(STATUS "INK_BENCHMARK_DIR: " ${INK_BENCHMARK_DIR})
 message(STATUS "BIN_DIR: " ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # test that filesystem header actually is there and works
-try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp" 
-"${CMAKE_SOURCE_DIR}/tests/has_filesystem.cc" 
-            CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON
-            LINK_LIBRARIES stdc++fs)
+# On macOS (AppleClang), std::filesystem is available natively without stdc++fs
+if(APPLE)
+  try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp"
+    "${CMAKE_SOURCE_DIR}/tests/has_filesystem.cc"
+    CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON)
+else()
+  try_compile(HAS_FS "${CMAKE_BINARY_DIR}/temp"
+    "${CMAKE_SOURCE_DIR}/tests/has_filesystem.cc"
+    CMAKE_FLAGS -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON
+    LINK_LIBRARIES stdc++fs)
+endif()
 if(HAS_FS)
     message(STATUS "Compiler has filesystem support")
 else()
@@ -122,8 +129,25 @@ endif()
 add_subdirectory(ink)
 add_subdirectory(${INK_3RD_PARTY_DIR}/PEGTL)
 add_subdirectory(${INK_3RD_PARTY_DIR}/OpenTimer)
-add_subdirectory(${INK_3RD_PARTY_DIR}/concurrentqueue)
-add_subdirectory(${INK_3RD_PARTY_DIR}/oneTBB)
+# concurrentqueue is header-only, no CMakeLists.txt needed
+
+# On macOS, use system TBB (e.g. from Homebrew) instead of building from source,
+# since the oneTBB submodule may not be initialized on this platform.
+if(APPLE)
+  # Homebrew installs TBB cmake config under its cellar; point CMake there.
+  execute_process(
+    COMMAND brew --prefix tbb
+    OUTPUT_VARIABLE HOMEBREW_TBB_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(HOMEBREW_TBB_PREFIX)
+    list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_TBB_PREFIX}")
+    message(STATUS "Using Homebrew TBB at: ${HOMEBREW_TBB_PREFIX}")
+  endif()
+else()
+  add_subdirectory(${INK_3RD_PARTY_DIR}/oneTBB)
+endif()
+
 add_subdirectory(${INK_EXAMPLE_DIR})
 add_subdirectory(main)
 add_subdirectory(unittests)

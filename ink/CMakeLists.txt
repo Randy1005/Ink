@@ -17,9 +17,12 @@ target_include_directories(ink
 target_include_directories(ink
   PUBLIC ${INK_3RD_PARTY_DIR}/MPMCQueue/include/rigtorp)
 
-# include oneTBB library
-target_include_directories(ink
-  PUBLIC ${INK_3RD_PARTY_DIR}/oneTBB/include)
+# include oneTBB library headers
+# On macOS we use the system/Homebrew TBB, so skip the submodule include path.
+if(NOT APPLE)
+  target_include_directories(ink
+    PUBLIC ${INK_3RD_PARTY_DIR}/oneTBB/include)
+endif()
 
 # include taskflow
 #target_include_directories(ink
@@ -36,6 +39,22 @@ target_link_libraries(ink PRIVATE Threads::Threads)
 target_link_libraries(ink PUBLIC OpenTimer)
 target_link_libraries(ink PUBLIC std::filesystem)
 
+
+# On macOS, Apple Clang does not ship with OpenMP; use Homebrew libomp.
+if(APPLE)
+  execute_process(
+    COMMAND brew --prefix libomp
+    OUTPUT_VARIABLE HOMEBREW_LIBOMP_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(HOMEBREW_LIBOMP_PREFIX)
+    set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp -I${HOMEBREW_LIBOMP_PREFIX}/include")
+    set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${HOMEBREW_LIBOMP_PREFIX}/include")
+    set(OpenMP_C_LIB_NAMES "omp")
+    set(OpenMP_CXX_LIB_NAMES "omp")
+    set(OpenMP_omp_LIBRARY "${HOMEBREW_LIBOMP_PREFIX}/lib/libomp.dylib")
+  endif()
+endif()
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
