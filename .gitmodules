@@ -1,3 +1,11 @@
 [submodule "3rd-party/OpenTimer"]
 	path = 3rd-party/OpenTimer
 	url = https://github.com/Randy1005/OpenTimer.git
+
+[submodule "3rd-party/concurrentqueue"]
+	path = 3rd-party/concurrentqueue
+	url = https://github.com/cameron314/concurrentqueue.git
+
+[submodule "3rd-party/MPMCQueue"]
+	path = 3rd-party/MPMCQueue
+	url = https://github.com/rigtorp/MPMCQueue.git

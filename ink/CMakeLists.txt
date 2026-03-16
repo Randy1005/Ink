@@ -69,4 +69,12 @@ target_link_libraries(ink PUBLIC TBB::tbb)
 
 target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
 
+# On macOS, libc++ requires this flag and the experimental library to expose
+# parallel STL policies (std::execution::par, par_unseq).
+if(APPLE)
+  target_compile_definitions(ink PUBLIC _LIBCPP_ENABLE_EXPERIMENTAL)
+  target_link_libraries(ink PUBLIC
+    ${CMAKE_OSX_SYSROOT}/usr/lib/libc++experimental.a)
+endif()
+
 

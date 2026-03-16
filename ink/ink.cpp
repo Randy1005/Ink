@@ -620,7 +620,6 @@ std::vector<Path> Ink::report_paths_mlq(
 	}
 
 	std::sort(
-		std::execution::par_unseq,
 		src_pfxs.begin(),
 		src_pfxs.end(),
 		[] (const auto& a, const auto& b) {
@@ -650,7 +649,6 @@ std::vector<Path> Ink::report_paths_mlq(
 
 	// place the src prefixes into their respective queues
 	std::for_each(
-		std::execution::par_unseq,
 		src_pfxs.begin(),
 		src_pfxs.end(),
 		[&](auto& pfx) {
@@ -919,7 +917,6 @@ std::vector<float> Ink::get_path_costs_from_cq() {
 
 std::vector<float> Ink::get_path_costs_from_tbb_cv() {
 	std::sort(
-		std::execution::par_unseq,
 		_tbb_cv_paths.begin(),
 		_tbb_cv_paths.end(),
 		[] (const auto& a, const auto& b) {
@@ -1887,60 +1884,34 @@ void Ink::_spur_multiq(
   //  std::cout << _bulk_size << '\n';
   //}
   
-  auto K_overgrow = static_cast<float>(K) * overgrow_scalar; 
-  //std::cout << "K overgrow=" << K_overgrow << '\n';
-  //if (spur_ahead) {
-  //  std::cout << "spur_ahead enabled.\n";
-  //}
-
-	Timer timer;
-	timer.start();
+  Timer timer;
+  timer.start();
   auto& sfxt = *_global_sfxt;
-  // TODO: how would we know if the N queues are "really" empty and
-  // stop the loop? In real benchmarks, it's extremely unlikely to
-  // run out of nodes, but we have to deal with this scenario
+
+  // Phase 1: parallel expansion.
+  // Stop when K paths are found OR all workers are idle (graph exhausted).
+  std::atomic<size_t> no_work_cnt{0};
+  const size_t idle_limit = _num_workers * 2 + 4;
   std::atomic<size_t> redistr_cnt{0};
-  while (_atom_path_cnt < K_overgrow) {
-    executor.silent_async([=, &pfxt, &redistr_cnt, &executor]() {
+  while (_atom_path_cnt < K &&
+         no_work_cnt.load(std::memory_order_relaxed) < idle_limit) {
+    executor.silent_async([=, &pfxt, &redistr_cnt, &executor, &no_work_cnt]() {
       size_t q_id = 0;
       while (pfxt.task_qs[q_id].size_approx() == 0) {
         if (q_id == num_task_qs - 1) {
           break;
-        }  
+        }
         q_id++;
       }
-      
-      if (updating_bounds && spur_ahead) {
-        for (size_t id = q_id; id < num_task_qs - 1; id++) {
-          executor.silent_async([=, &pfxt, &executor]() {
-            auto nodes = pfxt.pop_task(id, 2);
-            if (nodes.empty()) {
-              return;
-            }
-            assert(!nodes.empty());
-            size_t sz{0};
-            std::for_each(nodes.begin(), nodes.end(), [&pfxt, &sz, &executor, this](auto& n){
-              if (!n) {
-                return;
-              }
-              sz++;
-              _spur_multiq(pfxt, *(n.get()), executor);
-              pfxt.paths_concurr.enqueue(std::move(n));
-            });
 
-            _atom_path_cnt += sz;
-          }); 
-        }
-        return;
-      }
-    
-      assert(q_id < num_task_qs); 
+      assert(q_id < num_task_qs);
       // if we have moved on to the queue with
       // the lowest priority, we should update
-      // the bounds and redistribute the nodes 
+      // the bounds and redistribute the nodes
       if (q_id == num_task_qs - 1 && enable_node_redistr) {
         bool e1{false};
         if (!updating_bounds.compare_exchange_weak(e1, true)) {
+          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
         redistr_cnt++;
@@ -1948,47 +1919,49 @@ void Ink::_spur_multiq(
 
         if (policy == PartitionPolicy::EQUAL) {
           for (size_t i = 0; i < num_task_qs - 1; i++) {
-            bounds[i] = init + _width * i; 
+            bounds[i] = init + _width * i;
           }
         }
         else if (policy == PartitionPolicy::GEOMETRIC) {
           for (size_t i = 0; i < num_task_qs - 1; i++) {
             bounds[i] = init + std::pow(base, i + 1);
-          } 
+          }
         }
-       
+
         updating_bounds = false;
-        
+
         bool e2{false};
         if (!redistributing.compare_exchange_weak(e2, true)) {
+          no_work_cnt.store(0, std::memory_order_relaxed);
           return;
         }
-        
-        // move candidate nodes to a temp. storage 
+
+        // move candidate nodes to a temp. storage
         _tmp_q = std::move(pfxt.task_qs[q_id]);
 
         // redistribute tasks to their corresponding queues
-        while (!_tmp_q.size_approx() == 0) {
+        while (_tmp_q.size_approx() > 0) {
           std::unique_ptr<PfxtNode> node;
-          _tmp_q.try_dequeue(node);
+          if (!_tmp_q.try_dequeue(node)) break;
           auto q_idx = determine_q_idx(node->cost);
           pfxt.task_qs[q_idx].enqueue(std::move(node));
         }
 
         // unlock critical section
         redistributing = false;
-        
+        no_work_cnt.store(0, std::memory_order_relaxed);
         return;
       }
-      
+
       if (_bulk_size != 1) {
         std::uniform_int_distribution<size_t> distr(2, 8);
-        auto bs = (_bulk_size == 0) ? distr(rng) : _bulk_size; 
+        auto bs = (_bulk_size == 0) ? distr(rng) : _bulk_size;
         auto nodes = pfxt.pop_task(q_id, bs);
         if (nodes.empty()) {
+          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
-        assert(!nodes.empty());
+        no_work_cnt.store(0, std::memory_order_relaxed);
         size_t sz{0};
         std::for_each(nodes.begin(), nodes.end(), [&pfxt, &sz, &executor, this](auto& n){
           if (!n) {
@@ -1998,25 +1971,98 @@ void Ink::_spur_multiq(
           _spur_multiq(pfxt, *(n.get()), executor);
           pfxt.paths_concurr.enqueue(std::move(n));
         });
-        
         _atom_path_cnt += sz;
       }
       else {
         auto node = pfxt.pop_task(q_id);
         if (node == nullptr) {
+          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
+        no_work_cnt.store(0, std::memory_order_relaxed);
         _spur_multiq(pfxt, *node, executor);
         _atom_path_cnt++;
-      } 
-    });  
+      }
+    });
   }
   executor.wait_for_all();
 
-	timer.stop();
-	pfxt_time = timer.get_elapsed_time();
+  // Drain any nodes stranded in _tmp_q by an interrupted redistribution
+  // (size_approx() in the redistribution loop can undercount, leaving nodes).
+  {
+    std::unique_ptr<PfxtNode> tmp;
+    while (_tmp_q.try_dequeue(tmp)) {
+      auto q_idx = determine_q_idx(tmp->cost);
+      pfxt.task_qs[q_idx].enqueue(std::move(tmp));
+    }
+  }
 
-	_spurred_nodes = std::move(pfxt.paths_concurr); 
+  // Collect all paths found in Phase 1 into a local vector for sorting.
+  std::vector<std::unique_ptr<PfxtNode>> path_vec;
+  {
+    std::unique_ptr<PfxtNode> tmp;
+    while (pfxt.paths_concurr.try_dequeue(tmp)) {
+      path_vec.push_back(std::move(tmp));
+    }
+  }
+
+  // Phase 2: threshold-based serial drain of orphaned nodes left in task_qs.
+  // Correctness: spur child cost >= parent cost (monotone along any chain),
+  // so if node->cost > threshold, no descendant can enter the top-K.
+  while (true) {
+    float threshold;
+    if (path_vec.size() >= K) {
+      std::nth_element(
+        path_vec.begin(), path_vec.begin() + (K - 1), path_vec.end(),
+        [](const auto& a, const auto& b) { return a->cost < b->cost; });
+      threshold = path_vec[K - 1]->cost;
+    } else {
+      threshold = std::numeric_limits<float>::infinity();
+    }
+
+    // Collect all nodes from all queues, then filter.
+    // Separating collection from re-enqueue prevents infinite loops:
+    // ineligible nodes are put back; eligible nodes are spurred (children go
+    // into task_qs and are picked up on the next outer iteration).
+    std::vector<std::unique_ptr<PfxtNode>> candidates;
+    for (size_t qi = 0; qi < num_task_qs; qi++) {
+      std::unique_ptr<PfxtNode> node;
+      while (pfxt.task_qs[qi].try_dequeue(node)) {
+        candidates.push_back(std::move(node));
+      }
+    }
+    if (candidates.empty()) break;
+
+    size_t total_drained = 0;
+    for (auto& node : candidates) {
+      if (node->cost <= threshold) {
+        _spur_multiq(pfxt, *node, executor);
+        path_vec.push_back(std::move(node));
+        total_drained++;
+      } else {
+        auto q_idx = determine_q_idx(node->cost);
+        pfxt.task_qs[q_idx].enqueue(std::move(node));
+      }
+    }
+    if (total_drained == 0) break;
+  }
+
+  // Trim to exactly K paths.
+  if (path_vec.size() > K) {
+    std::nth_element(
+      path_vec.begin(), path_vec.begin() + K, path_vec.end(),
+      [](const auto& a, const auto& b) { return a->cost < b->cost; });
+    path_vec.resize(K);
+  }
+
+  for (auto& p : path_vec) {
+    pfxt.paths_concurr.enqueue(std::move(p));
+  }
+
+  timer.stop();
+  pfxt_time = timer.get_elapsed_time();
+
+  _spurred_nodes = std::move(pfxt.paths_concurr);
 }
 
 void Ink::_spur_multiq_relaxed(

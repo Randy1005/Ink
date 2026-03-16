@@ -12,6 +12,26 @@
 #include <execution>
 #include "timer.hpp"
 
+#ifdef __APPLE__
+// libc++ (Apple Clang) does not implement parallel std::remove_if.
+// Provide a sequential fallback that accepts (but ignores) an execution policy.
+namespace ink_compat {
+  template<class ForwardIt, class UnaryPredicate>
+  inline ForwardIt seq_remove_if(ForwardIt first, ForwardIt last, UnaryPredicate p) {
+    return std::remove_if(first, last, std::move(p));
+  }
+}
+namespace std {
+  template<class ExecutionPolicy, class ForwardIt, class UnaryPredicate>
+  inline auto remove_if(ExecutionPolicy&&, ForwardIt first, ForwardIt last, UnaryPredicate p)
+    -> std::enable_if_t<std::is_execution_policy_v<std::decay_t<ExecutionPolicy>>, ForwardIt>
+  {
+    return ::ink_compat::seq_remove_if(first, last, std::move(p));
+  }
+}
+#endif
+
+
 #define NUM_WEIGHTS 8
 #define DC_SCALE 10000
 
