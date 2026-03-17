@@ -68,7 +68,10 @@ int main(int argc, char* argv[]) {
   total_pfxt_time = std::chrono::duration<double, std::micro>{0};
 
   // pathgen
-  auto max_cost = golden_costs[k-1];
+  // Clamp k to the number of available golden entries to avoid UB when
+  // k > golden file size (e.g. testing graph exhaustion with large K).
+  size_t effective_k = std::min(k, golden_costs.size());
+  auto max_cost = golden_costs[effective_k - 1];
   auto min_cost = golden_costs.front();
   for (int i = 0; i < runs; i++) {
     pathgen.report_multiq(
@@ -84,18 +87,20 @@ int main(int argc, char* argv[]) {
       pathgen.reset();
     }
   }
-  auto pathgen_avg_pfxt_time = total_pfxt_time/runs/1ms; 
+  auto pathgen_avg_pfxt_time = total_pfxt_time/runs/1ms;
   // get pathgen costs
   auto pathgen_costs = pathgen.get_path_costs_from_cq();
-  // calculate max and average error
+  // calculate max and average error (only over paths present in both outputs)
+  size_t pathgen_cmp_k = std::min({k, golden_costs.size(), pathgen_costs.size()});
   float pathgen_max_error = 0.0f;
   float pathgen_avg_error = 0.0f;
-  for (size_t i = 0; i < k; i++) {
+  for (size_t i = 0; i < pathgen_cmp_k; i++) {
+    if (golden_costs[i] == 0.0f) continue;
     float error = std::abs(pathgen_costs[i]-golden_costs[i])/golden_costs[i];
     pathgen_max_error = std::max(pathgen_max_error, error);
     pathgen_avg_error += error;
   }
-  pathgen_avg_error /= k;
+  if (pathgen_cmp_k > 0) pathgen_avg_error /= pathgen_cmp_k;
   std::cout << "pathgen done.\n";
 
   total_pfxt_time = std::chrono::duration<double, std::micro>{0};
@@ -115,15 +120,17 @@ int main(int argc, char* argv[]) {
   // get cpathgen costs
   auto cpathgen_costs = cpathgen.get_path_costs_from_tbb_cv();
  
-  // calculate max and average error
+  // calculate max and average error (only over paths present in both outputs)
+  size_t cpathgen_cmp_k = std::min({k, golden_costs.size(), cpathgen_costs.size()});
   float cpathgen_max_error = 0.0f;
   float cpathgen_avg_error = 0.0f;
-  for (size_t i = 0; i < k; i++) {
+  for (size_t i = 0; i < cpathgen_cmp_k; i++) {
+    if (golden_costs[i] == 0.0f) continue;
     float error = std::abs(cpathgen_costs[i]-golden_costs[i])/golden_costs[i];
     cpathgen_max_error = std::max(cpathgen_max_error, error);
     cpathgen_avg_error += error;
   }
-  cpathgen_avg_error /= k;
+  if (cpathgen_cmp_k > 0) cpathgen_avg_error /= cpathgen_cmp_k;
   auto cpathgen_avg_pfxt_time = total_pfxt_time/runs/1ms;
   std::cout << "cpathgen done.\n";
 

@@ -1888,14 +1888,67 @@ void Ink::_spur_multiq(
   timer.start();
   auto& sfxt = *_global_sfxt;
 
-  // Phase 1: parallel expansion.
-  // Stop when K paths are found OR all workers are idle (graph exhausted).
-  std::atomic<size_t> no_work_cnt{0};
-  const size_t idle_limit = _num_workers * 2 + 4;
+  auto K_overgrow = static_cast<float>(K) * overgrow_scalar;
   std::atomic<size_t> redistr_cnt{0};
-  while (_atom_path_cnt < K &&
-         no_work_cnt.load(std::memory_order_relaxed) < idle_limit) {
-    executor.silent_async([=, &pfxt, &redistr_cnt, &executor, &no_work_cnt]() {
+
+  // in_flight tracks tasks submitted but not yet returned.
+  // Decremented via RAII so every early return is covered.
+  std::atomic<size_t> in_flight{0};
+  struct InFlightGuard {
+    std::atomic<size_t>& cnt;
+    explicit InFlightGuard(std::atomic<size_t>& c) : cnt(c) {}
+    ~InFlightGuard() { cnt.fetch_sub(1, std::memory_order_release); }
+  };
+
+  auto queues_empty = [&]() {
+    for (size_t i = 0; i < num_task_qs; i++) {
+      if (pfxt.task_qs[i].size_approx() > 0) return false;
+    }
+    return true;
+  };
+
+  // Stale-redistribution detection: if redistr_cnt increments several times
+  // without _atom_path_cnt growing, all remaining queued nodes have costs
+  // beyond even the updated bounds — graph is exhausted.
+  size_t last_redistr_seen = 0;
+  size_t last_path_at_redistr = 0;
+  size_t stale_redistr_count = 0;
+  const size_t STALE_REDISTR_LIMIT = num_task_qs * 3 + 10;
+
+  while (_atom_path_cnt < K_overgrow) {
+    // Throttle: cap outstanding tasks so workers run before we flood them.
+    while (in_flight.load(std::memory_order_relaxed) >= _num_workers * 4) {
+      std::this_thread::yield();
+    }
+
+    // Stale redistribution check: count redistributions with no new paths.
+    {
+      size_t cur_redistr = redistr_cnt.load(std::memory_order_relaxed);
+      if (cur_redistr != last_redistr_seen) {
+        size_t cur_path = _atom_path_cnt.load(std::memory_order_relaxed);
+        if (cur_path == last_path_at_redistr) {
+          stale_redistr_count++;
+        } else {
+          stale_redistr_count = 0;
+          last_path_at_redistr = cur_path;
+        }
+        last_redistr_seen = cur_redistr;
+      }
+    }
+
+    // Graph-exhaustion check: either queues naturally drained, or redistribution
+    // has cycled repeatedly without producing new paths (bounds can't cover
+    // remaining node costs — graph fully enumerated).
+    if (in_flight.load(std::memory_order_acquire) == 0) {
+      if (queues_empty() || stale_redistr_count >= STALE_REDISTR_LIMIT) {
+        break;
+      }
+    }
+
+    in_flight.fetch_add(1, std::memory_order_relaxed);
+
+    executor.silent_async([=, &pfxt, &redistr_cnt, &executor, &in_flight]() {
+      InFlightGuard guard(in_flight);
       size_t q_id = 0;
       while (pfxt.task_qs[q_id].size_approx() == 0) {
         if (q_id == num_task_qs - 1) {
@@ -1911,7 +1964,6 @@ void Ink::_spur_multiq(
       if (q_id == num_task_qs - 1 && enable_node_redistr) {
         bool e1{false};
         if (!updating_bounds.compare_exchange_weak(e1, true)) {
-          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
         redistr_cnt++;
@@ -1932,7 +1984,6 @@ void Ink::_spur_multiq(
 
         bool e2{false};
         if (!redistributing.compare_exchange_weak(e2, true)) {
-          no_work_cnt.store(0, std::memory_order_relaxed);
           return;
         }
 
@@ -1949,7 +2000,6 @@ void Ink::_spur_multiq(
 
         // unlock critical section
         redistributing = false;
-        no_work_cnt.store(0, std::memory_order_relaxed);
         return;
       }
 
@@ -1958,10 +2008,8 @@ void Ink::_spur_multiq(
         auto bs = (_bulk_size == 0) ? distr(rng) : _bulk_size;
         auto nodes = pfxt.pop_task(q_id, bs);
         if (nodes.empty()) {
-          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
-        no_work_cnt.store(0, std::memory_order_relaxed);
         size_t sz{0};
         std::for_each(nodes.begin(), nodes.end(), [&pfxt, &sz, &executor, this](auto& n){
           if (!n) {
@@ -1976,10 +2024,8 @@ void Ink::_spur_multiq(
       else {
         auto node = pfxt.pop_task(q_id);
         if (node == nullptr) {
-          no_work_cnt.fetch_add(1, std::memory_order_relaxed);
           return;
         }
-        no_work_cnt.store(0, std::memory_order_relaxed);
         _spur_multiq(pfxt, *node, executor);
         _atom_path_cnt++;
       }
@@ -1987,77 +2033,118 @@ void Ink::_spur_multiq(
   }
   executor.wait_for_all();
 
-  // Drain any nodes stranded in _tmp_q by an interrupted redistribution
-  // (size_approx() in the redistribution loop can undercount, leaving nodes).
-  {
-    std::unique_ptr<PfxtNode> tmp;
-    while (_tmp_q.try_dequeue(tmp)) {
-      auto q_idx = determine_q_idx(tmp->cost);
-      pfxt.task_qs[q_idx].enqueue(std::move(tmp));
-    }
-  }
-
-  // Collect all paths found in Phase 1 into a local vector for sorting.
-  std::vector<std::unique_ptr<PfxtNode>> path_vec;
-  {
-    std::unique_ptr<PfxtNode> tmp;
-    while (pfxt.paths_concurr.try_dequeue(tmp)) {
-      path_vec.push_back(std::move(tmp));
-    }
-  }
-
-  // Phase 2: threshold-based serial drain of orphaned nodes left in task_qs.
-  // Correctness: spur child cost >= parent cost (monotone along any chain),
-  // so if node->cost > threshold, no descendant can enter the top-K.
-  while (true) {
-    float threshold;
-    if (path_vec.size() >= K) {
-      std::nth_element(
-        path_vec.begin(), path_vec.begin() + (K - 1), path_vec.end(),
-        [](const auto& a, const auto& b) { return a->cost < b->cost; });
-      threshold = path_vec[K - 1]->cost;
-    } else {
-      threshold = std::numeric_limits<float>::infinity();
+  // --- Option E2: Tight-threshold phased parallel drain ---
+  // The parallel phase may leave orphans in task_qs (children of the last
+  // in-flight tasks, plus redistribution-moved nodes).  Option E2 computes a
+  // tight threshold *before* any spurring:
+  //
+  //   1. Drain paths_concurr → result; initial threshold = result[K-1]->cost.
+  //   2. Drain ALL task_qs → orphan pool (no cost filter yet).
+  //   3. nth_element on costs(result ∪ orphans) → tight_threshold.
+  //      Valid without spurring: child.cost >= parent.cost (monotonicity),
+  //      so any orphan with cost > tight_threshold has no descendant in top-K.
+  //   4. Filter orphans: keep cost <= tight_threshold → initial batch.
+  //   5. Spur batch in parallel; absorb results; tighten threshold.
+  //   6. Repeat from task_qs (children of previous phase) until empty.
+  if (_atom_path_cnt >= K) {
+    std::vector<std::unique_ptr<PfxtNode>> result;
+    {
+      std::unique_ptr<PfxtNode> p;
+      while (pfxt.paths_concurr.try_dequeue(p)) result.push_back(std::move(p));
     }
 
-    // Collect all nodes from all queues, then filter.
-    // Separating collection from re-enqueue prevents infinite loops:
-    // ineligible nodes are put back; eligible nodes are spurred (children go
-    // into task_qs and are picked up on the next outer iteration).
-    std::vector<std::unique_ptr<PfxtNode>> candidates;
-    for (size_t qi = 0; qi < num_task_qs; qi++) {
+    auto by_cost = [](const auto& a, const auto& b) { return a->cost < b->cost; };
+    if (result.size() > K) {
+      std::nth_element(result.begin(), result.begin() + K - 1, result.end(), by_cost);
+      result.resize(K);
+    }
+    float threshold = result[K - 1]->cost;
+
+    // Step 2: drain ALL task_qs into orphan pool (no discard yet).
+    std::vector<std::unique_ptr<PfxtNode>> orphans;
+    {
       std::unique_ptr<PfxtNode> node;
-      while (pfxt.task_qs[qi].try_dequeue(node)) {
-        candidates.push_back(std::move(node));
+      for (size_t qi = 0; qi < num_task_qs; qi++) {
+        while (pfxt.task_qs[qi].try_dequeue(node)) {
+          orphans.push_back(std::move(node));
+        }
       }
     }
-    if (candidates.empty()) break;
 
-    size_t total_drained = 0;
-    for (auto& node : candidates) {
-      if (node->cost <= threshold) {
-        _spur_multiq(pfxt, *node, executor);
-        path_vec.push_back(std::move(node));
-        total_drained++;
-      } else {
-        auto q_idx = determine_q_idx(node->cost);
-        pfxt.task_qs[q_idx].enqueue(std::move(node));
+    // Step 3: compute tight threshold from combined cost set.
+    if (!orphans.empty()) {
+      std::vector<float> all_costs;
+      all_costs.reserve(result.size() + orphans.size());
+      for (auto& p : result)  all_costs.push_back(p->cost);
+      for (auto& p : orphans) all_costs.push_back(p->cost);
+      if (all_costs.size() > K) {
+        std::nth_element(all_costs.begin(), all_costs.begin() + K - 1,
+                         all_costs.end());
+        threshold = all_costs[K - 1];  // tight threshold
       }
     }
-    if (total_drained == 0) break;
-  }
 
-  // Trim to exactly K paths.
-  if (path_vec.size() > K) {
-    std::nth_element(
-      path_vec.begin(), path_vec.begin() + K, path_vec.end(),
-      [](const auto& a, const auto& b) { return a->cost < b->cost; });
-    path_vec.resize(K);
-  }
+    // Step 4: initial batch = orphans with cost <= tight threshold.
+    std::vector<std::unique_ptr<PfxtNode>> batch;
+    batch.reserve(orphans.size());
+    for (auto& p : orphans) {
+      if (p->cost <= threshold)
+        batch.push_back(std::move(p));
+      // else: discard — all descendants also above threshold (monotonicity)
+    }
+    orphans.clear();
+    orphans.shrink_to_fit();
 
-  for (auto& p : path_vec) {
-    pfxt.paths_concurr.enqueue(std::move(p));
+    size_t total_drain = 0;
+    size_t phase = 0;
+
+    // Steps 5-6: parallel spur loop.
+    for (;;) {
+      if (batch.empty()) break;
+
+      total_drain += batch.size();
+      phase++;
+
+      for (auto& node_ptr : batch) {
+        PfxtNode* raw = node_ptr.get();
+        executor.silent_async([this, &pfxt, &executor, raw]() {
+          _spur_multiq(pfxt, *raw, executor); // enqueues children into task_qs
+          pfxt.paths_concurr.enqueue(std::unique_ptr<PfxtNode>(raw));
+        });
+      }
+      for (auto& node_ptr : batch) (void)node_ptr.release();
+      executor.wait_for_all();
+
+      // Absorb results; tighten threshold.
+      {
+        std::unique_ptr<PfxtNode> p;
+        while (pfxt.paths_concurr.try_dequeue(p)) result.push_back(std::move(p));
+      }
+      if (result.size() > K) {
+        std::nth_element(result.begin(), result.begin() + K - 1, result.end(),
+                         by_cost);
+        result.resize(K);
+      }
+      threshold = result[K - 1]->cost;
+
+      // Collect next batch from task_qs (children spawned by this phase).
+      batch.clear();
+      {
+        std::unique_ptr<PfxtNode> node;
+        for (size_t qi = 0; qi < num_task_qs; qi++) {
+          while (pfxt.task_qs[qi].try_dequeue(node)) {
+            if (node->cost <= threshold)
+              batch.push_back(std::move(node));
+          }
+        }
+      }
+    }
+
+    std::cerr << "[drain-E2] phases=" << phase
+              << " total_drained=" << total_drain << "\n";
+    for (auto& p : result) pfxt.paths_concurr.enqueue(std::move(p));
   }
+  // --- End Option E2 drain ---
 
   timer.stop();
   pfxt_time = timer.get_elapsed_time();
