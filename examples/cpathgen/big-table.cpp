@@ -1,13 +1,18 @@
 #include <ink/ink.hpp>
 
 int main(int argc, char* argv[]) {
-  if (argc != 4) {
-    std::cerr << "usage: ./a.out [k] [input] [golden]\n";
+  if (argc != 4 && argc != 5) {
+    std::cerr << "usage: ./a.out [k] [input] [golden] [num_threads=auto]\n";
     return EXIT_FAILURE;
   }
 
   ink::Ink ot, pathgen, cpathgen;
   size_t k = std::stoi(argv[1]);
+  size_t num_threads = (argc == 5) ? std::stoul(argv[4]) : 0; // 0 = hardware_concurrency
+  if (num_threads > 0) {
+    pathgen.set_num_workers(num_threads);
+    cpathgen.set_num_workers(num_threads);
+  }
 
   // strip the directory from the input file
   std::string filename = argv[2];
@@ -48,7 +53,7 @@ int main(int argc, char* argv[]) {
   std::chrono::duration<double, std::micro> total_pfxt_time{0};
   
 
-  const int runs{1};
+  const int runs{5};
 
   // ot
   for (int i = 0; i < runs; i++) {
@@ -105,11 +110,15 @@ int main(int argc, char* argv[]) {
 
   total_pfxt_time = std::chrono::duration<double, std::micro>{0};
 
+  std::optional<size_t> cpathgen_workers = (num_threads > 0)
+    ? std::optional<size_t>(num_threads)
+    : std::nullopt;
   for (int i = 0; i < runs; i++) {
     cpathgen.report_paths_mlq(
-      2.5f, // delta
-      k,    // K
-      10    // num_queues
+      2.5f,             // delta
+      k,                // K
+      10,               // num_queues
+      cpathgen_workers  // num_workers
     );
     total_pfxt_time += cpathgen.pfxt_time;
     if (i < runs-1) {

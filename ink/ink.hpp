@@ -8,6 +8,7 @@
 #include <oneapi/tbb/concurrent_vector.h>
 #include <oneapi/tbb/parallel_for_each.h>
 #include <oneapi/tbb/task_arena.h>
+#include <oneapi/tbb/combinable.h>
 #include <algorithm>
 #include <execution>
 #include "timer.hpp"

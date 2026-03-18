@@ -1,168 +1,110 @@
-# Concurrency Bug Analysis: `_spur_multiq`
+The `_spur_multiq` implementation leverages TBB for parallelism, introducing concurrent data structures and parallel algorithms. The error rate being 0% is excellent, allowing us to focus purely on performance optimization. The provided benchmark results show `cpathgen` (presumably this `_spur_multiq` implementation) is faster than `pathgen` (likely `_spur_mlq`) for the `*.edges` datasets, with speedups of 2.1-2.5x over `ot_pfxt_time`. This indicates good parallel scaling, but there are clear areas for further improvement.
 
-## 1. Primary Root Cause — Early Termination
+The `vga_lcd` benchmark result from the prompt description (`cpathgen ~327ms` vs `pathgen ~165ms`) contradicts the trend in the `*.edges` table, where `cpathgen` is faster. Assuming the `*.edges` table reflects the current `_spur_multiq` performance, we'll proceed with that understanding.
 
-### Exact Chain
+### 1. Allocation Bottleneck — Cost of `make_unique<PfxtNode>` per spur child
 
-```
-while (_atom_path_cnt < K_overgrow)          // line 1903
-  └─ submits silent_async task T_i
-       └─ T_i calls _spur_multiq(pfxt, node, executor)  // line 1998/2009
-            └─ pushes child nodes into pfxt.task_qs[]   // line 2742
-                 via pfxt.push_task(...)
-```
-
-**Race between writer and condition check:**
-
-1. `_atom_path_cnt` reaches `K_overgrow` (or slightly below it on the last iteration).
-2. The `while` condition fails → **no more `silent_async` submissions**.
-3. `executor.wait_for_all()` (line 2014) drains only already-submitted tasks.
-4. Those running tasks call `_spur_multiq(pfxt, node, executor)` which enqueues fresh children into `pfxt.task_qs[]`.
-5. The outer loop has already exited → **those children are never dequeued, never spurred, never enqueued into `paths_concurr`**.
-6. If any orphaned child belongs to the true top-K set, it is missing from `_spurred_nodes` → **path cost errors**.
-
-The severity scales with:
-- `overgrow_scalar` (how early the loop terminates relative to K)
-- Fan-out of the last batch of processed nodes
-- How many of those orphans rank inside the true top-K
-
----
-
-## 2. Secondary Issues Inside `_spur_multiq` Only
-
-### 2a. `_atom_path_cnt` increment is non-atomic relative to the loop guard (line 1903 / 2002 / 2010)
-
+**Observation:**
+The most frequent and potentially expensive operation in the `_spur_tbb_task_vecs` function (ink.cpp:2834) is the creation of new `PfxtNode` objects:
 ```cpp
-// line 2002
-_atom_path_cnt += sz;          // bulk path: sz is computed before increment
-
-// line 2010  
-_atom_path_cnt++;              // single path
+2881  task_vecs[vec_id].push_back(
+2882  	std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel)));
 ```
+This `std::make_unique` call happens for *every* child node generated. Given that `K=1M` paths are sought, and each path can consist of many nodes, the total number of `PfxtNode` allocations can easily run into the tens or hundreds of millions.
 
-`_atom_path_cnt` is `std::atomic` so individual operations are sequentially consistent, but **the guard read and the increment are not a single atomic transaction**. Multiple tasks can all read `_atom_cnt < K_overgrow`, all pass, all increment, causing `_atom_path_cnt` to overshoot by up to `_bulk_size × _num_workers` paths. This makes early termination *worse* (loop exits even earlier than `K_overgrow` demands) and increases the orphan population.
+**Why it's a bottleneck:**
+*   **Heap Allocation Overhead:** Each `make_unique` triggers a dynamic memory allocation on the heap. Heap allocations (`new`) are inherently slower than stack allocations. They involve searching for suitable memory blocks, updating internal data structures, and potentially acquiring locks (even in a multithreaded allocator), leading to contention.
+*   **Memory Fragmentation:** Frequent small allocations can lead to memory fragmentation, reducing cache efficiency and increasing the chance of future allocations taking longer.
+*   **Cache Misses:** Each `PfxtNode` is allocated independently, meaning they are scattered throughout memory. When `parallel_for_each` iterates through `task_vecs[id]`, it fetches `std::unique_ptr<PfxtNode>`, which then needs to be dereferenced (`*pfx`) to access the actual `PfxtNode` data. This dereference often results in a cache miss, as the `PfxtNode` data is unlikely to be in the cache near its `unique_ptr`. This significantly increases memory latency.
 
-### 2b. `pop_task` (bulk overload) transfers ownership into the task vector but NOT into `paths_concurr` (line 2296–2305 vs. single-node overload line 2281–2293)
+### 2. Concurrency Bottleneck — `push_back` Contention on `tbb::concurrent_vector`
 
-Looking at `pop_task` (single node, line 3281): it immediately enqueues the node into `paths_concurr` before returning the raw pointer. The **bulk** `pop_task` (line 3296) only returns the `unique_ptr` vector — ownership transfer to `paths_concurr` is done manually in the lambda (line 1999):
-
+**Observation:**
+Child nodes are pushed into `task_vecs[vec_id]` within `_spur_tbb_task_vecs`:
 ```cpp
-pfxt.paths_concurr.enqueue(std::move(n));   // line 1999
+2881  task_vecs[vec_id].push_back(std::make_unique<PfxtNode>(...));
 ```
-
-However, in the `spur_ahead` branch (line 1928), the same pattern is used. This is correct *if* the node is not null. But notice:
-
+Similarly, during the overflow redistribution phase:
 ```cpp
-std::for_each(nodes.begin(), nodes.end(), [&pfxt, &sz, &executor, this](auto& n){
-    if (!n) {
-        return;          // null node → skipped, NOT enqueued
-    }
-    sz++;
-    _spur_multiq(pfxt, *(n.get()), executor);
-    pfxt.paths_concurr.enqueue(std::move(n));
-});
-_atom_path_cnt += sz;    // line 2002
+1993  task_vecs[idx].push_back(std::move(pfx));
 ```
+While `tbb::concurrent_vector::push_back` is thread-safe, it's not entirely lock-free for all operations, especially when the underlying segments need to be allocated or resized.
 
-`try_dequeue_bulk` may partially fill the vector (returns fewer than `bulk_size` items), leaving trailing `nullptr`s. The null-guard is correct. **But `sz` counts only non-null nodes, while the vector was pre-allocated to `bulk_size`** (line 3298: `std::vector<std::unique_ptr<PfxtNode>> nodes(bulk_size)`). Trailing default-constructed `unique_ptr`s (null) are silently skipped — this is handled correctly. No secondary bug here.
+**Why it's a bottleneck:**
+*   **Hotspot Contention:** If the `determine_q_idx` logic (ink.hpp:511) or the overflow redistribution logic (ink.cpp:1990) frequently directs many threads to push to the *same* `task_vecs[vec_id]` (e.g., `task_vecs[0]` if many nodes fall into the lowest cost band), this specific `concurrent_vector` becomes a hotspot. Threads will contend for internal locks or atomic operations within that vector, leading to serialization and reduced parallelism.
+*   **Segment Allocation:** `tbb::concurrent_vector` manages memory in segments. If `push_back` frequently triggers new segment allocations, this involves more overhead and potential contention.
+*   **`paths_cv` mitigation:** The use of `tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths` (ink.cpp:1915) effectively mitigates this for path collection into `paths_cv`. Threads collect paths locally, then bulk-insert using `grow_by` (ink.cpp:1930). This pattern is *not* applied to the children spurred into `task_vecs`.
 
-### 2c. `_tmp_q` redistribution uses a shared member variable without adequate protection (line 1968)
+### 3. Overflow Compaction Cost — `remove_if` scan on potentially large overflow vector
 
+**Observation:**
+The overflow handling involves these steps (ink.cpp:2000-2006):
 ```cpp
-_tmp_q = std::move(pfxt.task_qs[q_id]);    // line 1968
+2000  auto rm_end = std::remove_if(
+2001    std::execution::par_unseq,
+2002    task_vecs.back().begin(),
+2003    task_vecs.back().end(),
+2004    [](auto& pfx) { return !pfx; });
+2005  task_vecs.back().resize(
+2006    std::distance(task_vecs.back().begin(), rm_end));
 ```
+This sequence is executed after nodes have been promoted from the overflow queue (`task_vecs.back()`) to active queues, leaving `nullptr` entries.
 
-`_tmp_q` appears to be an `Ink` member (not local). The `redistributing` CAS (line 1963) prevents two threads from entering simultaneously, but between the CAS and the actual move, another thread reading `_tmp_q` for a different purpose (if any) would see torn state. Within `_spur_multiq` this is only written here, so the risk is confined — but it is still a design smell.
+**Why it's a bottleneck:**
+*   **Full Scan:** `std::remove_if` (even with `par_unseq`) must iterate over the *entire* overflow vector. If the overflow vector grows very large, this scan becomes expensive in terms of CPU cycles and memory bandwidth, regardless of how many elements are actually removed.
+*   **`resize` on `concurrent_vector`:** After `remove_if` logically moves non-`nullptr` elements to the front, `resize` is called. For `tbb::concurrent_vector`, `resize` might involve copying elements between segments if the new size forces a change in segment layout or reallocation. Even if it just updates internal pointers, it signifies a non-trivial amount of work potentially moving unique_ptr objects.
+*   **Intermittent Cost:** While this doesn't happen in every iteration of the main loop, it occurs every time the bounds are adjusted and nodes are promoted. If the problem requires many such adjustments, this cost accumulates.
 
-### 2d. Condition `!_tmp_q.size_approx() == 0` is logically inverted (line 1971)
+### 4. Memory Access Patterns — Cache friendliness of `PfxtNode`, `task_vecs` layout
 
+**Observation:**
+As discussed in the allocation section, `task_vecs` stores `std::unique_ptr<PfxtNode>`. This means the `PfxtNode` objects themselves are not stored contiguously in memory.
 ```cpp
-while (!_tmp_q.size_approx() == 0) {    // line 1971
+1890  std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>> task_vecs(num_task_qs);
+// ...
+1922            [&](auto& pfx) {
+1923              if (!pfx) return;
+1924              _spur_tbb_task_vecs(pfxt, *pfx, task_vecs); // Dereference *pfx
 ```
 
-Due to C++ operator precedence, this parses as:
+**Why it's a bottleneck:**
+*   **Indirect Access:** Iterating over `task_vecs[id]` means iterating over a sequence of `unique_ptr`s. Each time `*pfx` is accessed, the CPU has to fetch the `PfxtNode` from a potentially random memory location on the heap.
+*   **Cache Inefficiency:** This pattern severely degrades cache performance. Instead of fetching a block of `PfxtNode` data into the cache (which would happen if `PfxtNode` objects were stored directly in the `concurrent_vector` or an array), the CPU typically incurs a cache miss for almost every `PfxtNode` dereference. The `PfxtNode` itself is small (a few floats, size_t, and pointers), but its scattered nature makes data access slow.
+*   **CPU Stalling:** Cache misses lead to CPU stalls, as the processor waits for data to be loaded from main memory, wasting potential parallel execution time.
 
-```cpp
-while ((!_tmp_q.size_approx()) == 0)
-// i.e., while ((_tmp_q.size_approx() == 0) == false ... wait:
-// !x == 0  →  (x != 0) ... actually:
-// !size_approx() gives 1 when size==0, 0 otherwise
-// (1 == 0) → false  when queue IS empty
-// (0 == 0) → true   when queue is NOT empty
-```
+### 5. Benchmark Correlation — Which benchmarks are slowest and inferred why
 
-Let's be precise:
+The provided `*.edges` benchmark table shows:
+*   `leon2.edges`: `cpathgen_avg_pfxt_time` = 158.9ms (2.1x speedup)
+*   `leon3mp.edges`: `cpathgen_avg_pfxt_time` = 126.3ms (2.5x speedup)
+*   `netcard.edges`: `cpathgen_avg_pfxt_time` = 151.9ms (2.1x speedup)
 
-| `size_approx()` | `!size_approx()` | `!size_approx() == 0` | Loop continues? |
-|---|---|---|---|
-| 0 (empty) | 1 | `1 == 0` → **false** | **No → exits** ✓ |
-| N>0 (not empty) | 0 | `0 == 0` → **true** | **Yes → continues** ✓ |
+Comparing these to the `ot_pfxt_time` (sequential baseline), `cpathgen` offers good speedups (2.1x to 2.5x). This suggests the parallelization is effective. The `leon3mp.edges` benchmark is the fastest in terms of absolute time, despite having a substantial number of vertices and edges, and yields the highest speedup. This could imply a graph structure or cost distribution that is more amenable to the current parallelization and load balancing strategy.
 
-This accidentally produces the **correct** behavior, but is highly misleading and fragile. The intended expression is `while (_tmp_q.size_approx() != 0)` or `while (!(_tmp_q.size_approx() == 0))`.
+The difference in execution times between these benchmarks (`leon3mp` being fastest, `leon2` slightly slower, `netcard` in between) likely correlates with:
+*   **Total work:** Number of `PfxtNode`s expanded, total spur count.
+*   **Graph structure:** Fanout (number of children per node), path length, and distribution of costs. Graphs that generate highly unbalanced `vec_id` distributions or very large overflow queues would suffer more from the identified contention and compaction bottlenecks.
+*   **Nature of paths to K:** How quickly K paths are found and if drain count is zero. (Currently `drain_count = 0` implies the drain phase has minimal impact on these results).
 
-### 2e. `pop_task` single-node path (line 2009) transfers node to `paths_concurr` inside `pop_task` itself, then the node pointer is used after the move
+The consistent speedup factors (around 2x) suggest that while parallelism is applied, there are still significant serial or contended sections (likely the identified bottlenecks) that limit scaling beyond this factor.
 
-```cpp
-// pop_task single (line 3281-3293):
-auto obs = node.get();
-paths_concurr.enqueue(std::move(node));   // node moved → obs is now a dangling-ish pointer
-return obs;                                // raw pointer into moved unique_ptr
+### 6. Prioritised Opportunities — Top 3 optimizations ranked by expected gain / effort
 
-// back in _spur_multiq (line 2009):
-_spur_multiq(pfxt, *node, executor);      // node == raw ptr returned by pop_task
-```
+Here are the top three prioritized opportunities:
 
-`obs` is still valid as a raw pointer because `paths_concurr.enqueue` stores the `unique_ptr` (the pointed-to object lives), but this design creates an implicit contract: the object must not be destroyed between `pop_task` returning `obs` and `_spur_multiq` finishing with it. Since `paths_concurr` owns the node for the rest of the algorithm, and `_spur_multiq` only reads `pfx.to`, `pfx.cost`, etc., this is *technically* safe — but extremely fragile. Any concurrent dequeue from `paths_concurr` during the spur would be a use-after-free.
+1.  **Reduce `PfxtNode` Allocation Overhead and Improve Cache Locality:**
+    *   **Expected Gain:** High. Addresses both allocation time and memory access latency, which are fundamental performance inhibitors for data-intensive loops.
+    *   **Effort:** High. Requires significant changes to memory management.
+    *   **Proposed Solution:** Implement a custom `PfxtNode` object pool or arena allocator. Instead of `std::make_unique<PfxtNode>`, allocate nodes from this pool. The `tbb::concurrent_vector`s would then store *pointers* (`PfxtNode*`) or *indices* to nodes within this pool, rather than `std::unique_ptr`s. This changes ownership semantics and requires careful design to ensure correctness (e.g., when nodes are "moved" or lifecycle management). The pool itself could use TBB's `tbb::cache_aligned_allocator` for its internal buffers to ensure memory is cache-aligned, and allocate nodes in contiguous blocks to improve spatial locality for iteration.
 
----
+2.  **Mitigate `tbb::concurrent_vector::push_back` Contention in `_spur_tbb_task_vecs`:**
+    *   **Expected Gain:** Medium to High. Directly targets parallel efficiency by reducing serialization.
+    *   **Effort:** Moderate. Reuses an existing successful pattern.
+    *   **Proposed Solution:** Apply the `tbb::combinable` pattern used for `paths_cv` (ink.cpp:1915-1933) to the `_spur_tbb_task_vecs` function. Each thread would accumulate spurred children into a *local* `std::vector<PfxtNode*>` (or `std::unique_ptr<PfxtNode>` if not adopting the pool for now). After `parallel_for_each`, use `combinable::combine_each` to bulk-insert these local collections into their respective `task_vecs[vec_id]` using `grow_by` or bulk `push_back` operations. This amortizes the cost and contention of `concurrent_vector::push_back`.
 
-## 3. Evidence Map
+3.  **Optimize Overflow Compaction (`remove_if` + `resize`):**
+    *   **Expected Gain:** Medium. Addresses a potentially costly phase that occurs regularly.
+    *   **Effort:** Moderate. Changes how the overflow queue is managed.
+    *   **Proposed Solution:** Instead of `remove_if` and `resize` on the existing `concurrent_vector`, use a "double-buffering" or "copy-on-collect" approach. When redistributing promoted nodes, the non-promoted nodes could be moved into a *new*, temporary `tbb::concurrent_vector`. After all threads have finished redistribution, the old `task_vecs.back()` can be swapped with this new vector. This avoids the `remove_if` scan and the potentially expensive `resize` operation. If nodes are managed by a pool (as in opportunity #1), then the overflow queue could simply track pointers/indices, and a new list of valid items could be constructed much more cheaply.
 
-| Line(s) | Issue | Error Mechanism |
-|---|---|---|
-| **1903** | `while (_atom_path_cnt < K_overgrow)` exits prematurely | Loop stops submitting; in-flight tasks push children that are never consumed |
-| **2014** | `executor.wait_for_all()` after early exit | Drains submitted tasks but their newly-pushed children remain in `task_qs` forever |
-| **2742** | `pfxt.push_task(...)` inside `_spur_multiq` per-node | Children enqueued here during the "drain" phase are orphaned |
-| **1998/2009** | Call to `_spur_multiq(pfxt, node, executor)` inside the async lambda | This is where children are generated *after* the outer loop exits |
-| **2002/2010** | `_atom_path_cnt += sz` / `_atom_path_cnt++` | Non-transactional read-check-increment causes overshoot → loop exits even earlier than intended |
-| **1971** | `while (!_tmp_q.size_approx() == 0)` | Operator-precedence bug; coincidentally correct but masks intent; could break with type changes |
-| **1963–1979** | `_tmp_q` as shared member in redistribution | Shared mutable state; safe only because of `redistributing` CAS, but not obviously so |
-
----
-
-## 4. Benchmark Correlation
-
-### `aes_core.edges` — highest average error (3.9) and max error (1052.3)
-
-- **66K vertices, 43K edges**: moderate graph, meaning each node has moderate fan-out
-- The pfxt tree grows quickly; K paths are found fast → `_atom_path_cnt` hits `K_overgrow` early in wall-clock time, while many in-flight tasks are still generating children
-- High max error (1052.3) indicates that some **very-low-cost paths** (which should be in top-K) are orphaned — these are nodes generated late by spur operations that completed just as the loop exited
-- The `_atom_path_cnt` overshoot (bug 2a) is amplified with bulk processing: at `_bulk_size > 1`, each task increments by up to 8 at once, causing the loop to stop far sooner than needed
-
-### `des_perf.edges` — second highest max error (343.5), low average (0.7)
-
-- **295K vertices, 189K edges**: large graph with many parallel paths
-- Low average error suggests most runs find correct paths, but occasional runs (high max) hit the race condition badly — consistent with a timing-dependent bug
-- The large graph means more tasks are in-flight simultaneously when the loop exits → more potential orphans per run
-
-### `vga_lcd.edges` — moderate errors (avg 1.0, max 38.2)
-
-- **397K vertices, 473K edges**: largest graph, but `|E|/|V|` ratio is highest (nearly 1.2)
-- Dense fan-out means each spur generates many children → more orphans when early termination hits
-- Lower max error than `des_perf` suggests `overgrow_scalar` provides enough buffer for most runs
-
-### `tv80.edges` — near-zero average error (0.0), small max (1.7)
-
-- **16K vertices, 11K edges**: smallest graph
-- Paths are exhausted quickly; `K_overgrow` is reached only after most meaningful paths are already in `paths_concurr`
-- The window between loop exit and `wait_for_all` completion is short → few orphans generated
-- Max error 1.7 still shows the bug exists, just rarely triggered
-
-### Summary Pattern
-
-```
-Error magnitude ∝ (fan-out × in-flight tasks at loop exit × P(orphan ∈ top-K))
-                ∝ (|E|/|V| × _num_workers × bulk_size × (K / total_paths))
-```
-
-`aes_core` has the worst ratio of `K` to total reachable paths — it's dense enough that the top-K boundary lies in a region with many equal-cost paths, making orphaned nodes much more likely to belong to the true top-K set.
+These optimizations build upon each other (e.g., an object pool makes the `push_back` and compaction optimizations easier and more efficient). Addressing allocation and cache issues first is usually the most impactful for this type of workload.

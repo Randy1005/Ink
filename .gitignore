@@ -41,3 +41,36 @@ vgcore*
 # benchmarks
 [Bb]enchmarks/
 [Bb]enchmarks/*
+.env
+
+# large generated files
+*.edges
+golden/
+*.csv
+.DS_Store
+
+# compiled outputs / debug dumps
+*.cpathgen
+*.ot
+*.pathgen
+examples/cpathgen/big-table
+examples/cpathgen/gen-golden
+examples/cpathgen/convert-gpathgen-benchmark-to-edge-insertions
+examples/cpathgen/err-vs-path-cnt
+examples/cpathgen/runtime-steps-vs-delta
+examples/cpathgen/runtime-vs-path-cnt
+examples/cpathgen/speedup-acc-vs-num-threads
+examples/cpathgen/toy
+examples/exp/exp
+examples/exp/parallel
+examples/exp/single-iter
+examples/*/*_example
+
+# large ICCAD benchmark input files
+*.spef
+*.v
+*.ops
+*.output
+*.lib
+*.tau2015
+*.timing

@@ -33,17 +33,17 @@ ink_add_example(aes_core_example ${INK_EXAMPLE_DIR}/aes_core/aes_core.cpp)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/ac97_ctrl)
 ink_add_example(ac97_ctrl_example ${INK_EXAMPLE_DIR}/ac97_ctrl/ac97_ctrl.cpp)
 
-# example: netcard.cpp
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/netcard)
-ink_add_example(netcard_example ${INK_EXAMPLE_DIR}/netcard/netcard.cpp)
+# example: netcard_iccad.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/netcard_iccad)
+ink_add_example(netcard_example ${INK_EXAMPLE_DIR}/netcard_iccad/netcard_iccad.cpp)
 
-# example: leon2.cpp
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/leon2)
-ink_add_example(leon2_example ${INK_EXAMPLE_DIR}/leon2/leon2.cpp)
+# example: leon2_iccad_eval.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/leon2_iccad_eval)
+ink_add_example(leon2_example ${INK_EXAMPLE_DIR}/leon2_iccad_eval/leon2_iccad_eval.cpp)
 
-# example: leon3.cpp
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/leon3)
-ink_add_example(leon3_example ${INK_EXAMPLE_DIR}/leon3/leon3.cpp)
+# example: leon3mp_iccad_eval.cpp
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/leon3mp_iccad_eval)
+ink_add_example(leon3mp_example ${INK_EXAMPLE_DIR}/leon3mp_iccad_eval/leon3mp_iccad_eval.cpp)
 
 # example: c17.cpp
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/c17)
