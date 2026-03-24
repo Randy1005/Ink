@@ -1870,7 +1870,12 @@ void Ink::_spur_multiq(
   _atom_path_cnt = 0;
 
   if (_num_workers == 0) {
-    _num_workers = std::thread::hardware_concurrency();
+    // 4T is the sweet spot on Apple M-series (memory-bandwidth-bound);
+    // see debug_session/experiment_log.md thread-scaling study.
+    _num_workers = std::min(
+      (size_t)std::thread::hardware_concurrency(),
+      (size_t)4
+    );
   }
   assert(_num_workers > 0);
 
