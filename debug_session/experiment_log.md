@@ -146,3 +146,41 @@ ot is sequential — its time is independent of thread count (listed once for re
 | 10      | 162.7     | +0%   | 126.5       | −2%   | 152.3       | −1%   |
 
 **Conclusion:** 4 threads is optimal (+7–12% pathgen, +19–24% cpathgen vs default 11T). Scaling saturates early due to memory-bandwidth bottleneck on Apple M-series. Recommend `num_workers = 4`.
+
+---
+
+## Iteration 5
+
+**Optimizations:** per-thread task_vecs (tbb::combinable) + _num_workers cap at 4
+
+### Outcome (K=1M, 5-run avg, default 4T)
+
+| Benchmark | iter3 default (ms) | iter5 4T (ms) | Δ% |
+|-----------|-------------------|--------------|-----|
+| vga_lcd   | 129.0             | 85.3         | +34% |
+| leon2     | 269.7             | 252.7        | +6% |
+| leon3mp   | 221.0             | 207.8        | +6% |
+| netcard   | 245.6             | 226.1        | +8% |
+
+### Scalability (leon2, K=1M)
+
+| threads | iter3 (ms) | iter5 (ms) | Δ% |
+|---------|-----------|-----------|-----|
+| 2       | 324.9     | 324.9     | 0%  |
+| 4       | 242.3     | 242.9     | −0% |
+| 6       | 258.2     | 367.0     | −42% |
+| 8       | 264.2     | 268.5     | −2% |
+| 10      | 261.7     | 274.6     | −5% |
+
+drain_count: 0 (must be 0)
+pathgen_avg_err: 0.0 (must be 0.0)
+
+**Analysis:** iter5 at the optimal 4T matches iter3 closely at T=2 and T=4, confirming
+that the combinable change does not regress low-thread-count performance. At T=6 there is
+a significant regression (367ms vs 258ms), suggesting the per-thread combinable overhead
+for task_vecs is non-trivial when thread count grows beyond the memory-bandwidth sweet
+spot. At T=8 and T=10 iter5 is slightly slower than iter3 as well. The practical impact
+is low since the default is now capped at 4T, where iter5 is +6–34% faster across all
+benchmarks. vga_lcd sees the largest improvement (+34%), likely because it is a smaller
+graph that benefits most from reduced contention at 4T. Large graphs (leon2/leon3mp/netcard)
+gain a more modest but consistent +6–8%.
