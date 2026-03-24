@@ -1919,6 +1919,13 @@ void Ink::_spur_multiq(
       // per window. Each combine_each clears the local buffers before next window.
       tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths;
 
+      // Per-thread child buffers: eliminates push_back contention on shared task_vecs.
+      // Each thread writes children to its own local copy; combine_each bulk-flushes
+      // into global task_vecs after each window using grow_by.
+      tbb::combinable<std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>> tl_task_vecs(
+        [&]{ return std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>(num_task_qs); }
+      );
+
       while (wbeg < wend) {
         arena.execute([&] {
           oneapi::tbb::parallel_for_each(
@@ -1926,7 +1933,7 @@ void Ink::_spur_multiq(
             task_vecs[id].begin() + wend,
             [&](auto& pfx) {
               if (!pfx) return;
-              _spur_tbb_task_vecs(pfxt, *pfx, task_vecs);
+              _spur_tbb_task_vecs(pfxt, *pfx, tl_task_vecs.local());
               local_paths.local().push_back(std::move(pfx));
             });
           // Bulk-insert into paths_cv and clear local buffers for reuse next window.
@@ -1935,6 +1942,22 @@ void Ink::_spur_multiq(
               auto it = paths_cv.grow_by(v.size());
               std::move(v.begin(), v.end(), it);
               v.clear();
+            }
+          });
+          // Flush per-thread child buffers into global task_vecs.
+          // Children may land in any band (0..num_task_qs-1), including already-processed
+          // or not-yet-reached bands — the flush correctly covers all qi.
+          // clear() is called AFTER std::move, so all unique_ptrs are already null/moved-from
+          // before clear() runs — safe. tbb::concurrent_vector::clear() does not release
+          // segment memory, but per-thread footprint is bounded (num_task_qs bands) and
+          // stable after the first few windows — the retained segments are reused next window.
+          tl_task_vecs.combine_each([&](auto& local_tv) {
+            for (size_t qi = 0; qi < num_task_qs; qi++) {
+              if (!local_tv[qi].empty()) {
+                auto it = task_vecs[qi].grow_by(local_tv[qi].size());
+                std::move(local_tv[qi].begin(), local_tv[qi].end(), it);
+                local_tv[qi].clear();
+              }
             }
           });
         });
@@ -2106,6 +2129,8 @@ void Ink::_spur_multiq(
           drain_cv.begin() + wend,
           [&](auto& pfx) {
             if (!pfx) return;
+            // Drain phase writes directly to global task_vecs — no per-thread buffering needed
+            // here since drain_count is 0 on all current benchmarks (negligible runtime).
             _spur_tbb_task_vecs(pfxt, *pfx, task_vecs);
           });
       });
