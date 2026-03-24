@@ -105,11 +105,11 @@ for Q in 100 50 20 10; do
 done
 ```
 
-Choose the smallest Q where `pathgen_avg_err=0.0` and `pathgen_max_err=0.0` on **all three** benchmarks. If error appears on any benchmark, use the next larger value.
+Choose the smallest Q where `pathgen_avg_err=0.0` and `pathgen_max_err=0.0` on **all three** benchmarks. If error appears at any Q, **do not fall back to a larger value** — non-zero error indicates a correctness bug in the algorithm that must be diagnosed and fixed before proceeding. Error is never a tuning artefact.
 
 ### Risk
 
-Too few bands → wider cost buckets → more overflow promotions. The EQUAL policy's analytical bump makes overflow O(1) per cycle, so moderate reduction is safe. If `Q < 10` causes error, stop at the first correct value.
+Too few bands → wider cost buckets → more overflow promotions. The EQUAL policy's analytical bump makes overflow O(1) per cycle, so moderate reduction is safe. If any Q causes non-zero error, stop immediately — this is a correctness bug, not a tuning issue, and must be investigated before continuing.
 
 ### Scope
 
