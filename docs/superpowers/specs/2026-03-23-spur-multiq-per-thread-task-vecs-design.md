@@ -130,19 +130,40 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
    ```
    `pathgen_avg_err` and `pathgen_max_err` must both be `0.0`.
 
-3. Performance (K=1M, primary benchmarks):
+3. Performance (K=1M, primary benchmarks) — run at both 11T and 4T to compare against both baselines:
    ```bash
+   # 11-thread run (default hardware_concurrency before cap)
+   rm -f big-table.csv
+   for bm in leon2 leon3mp netcard; do
+     examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.golden
+   done
+   cat big-table.csv
+
+   # 4-thread run (cap applied)
    rm -f big-table.csv
    for bm in leon2 leon3mp netcard; do
      examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.golden
    done
    cat big-table.csv
    ```
-   Compare `pathgen_pfxt_time` vs baseline (259ms / 212ms / 242ms at 11T).
+   Compare `pathgen_pfxt_time` vs:
+   - 11T baseline: 259ms / 212ms / 242ms (leon2 / leon3mp / netcard)
+   - 4T baseline:  241ms / 198ms / 214ms (from thread-scaling study, iter 3 code)
 
-4. Confirm `drain_count = 0` unchanged.
+4. **Scalability test** (K=1M, leon2 only, 5-run average per thread count) — determine whether per-thread buffering improves scaling beyond 4T:
+   ```bash
+   for T in 2 4 6 8 10; do
+     # set _num_workers = T (either via set_num_workers or a temporary env/compile flag)
+     rm -f big-table.csv
+     examples/cpathgen/big-table 1000000 benchmarks/leon2.edges golden/leon2.golden
+     echo "T=$T:"; cat big-table.csv
+   done
+   ```
+   Compare against the iter 3 thread-scaling table. If contention was the bottleneck, higher thread counts should now yield better speedups than before (the curve should be flatter / scale further).
 
-**Success criterion:** ≥5% improvement on at least 2 of 3 large benchmarks, zero error, drain=0.
+5. Confirm `drain_count = 0` unchanged on all runs.
+
+**Success criterion:** ≥5% improvement on at least 2 of 3 large benchmarks at 4T, zero error, drain=0. Scalability curve should show meaningful improvement at ≥6T vs iter 3 baseline.
 
 ---
 
