@@ -20,11 +20,17 @@ Additionally, the thread scaling study (experiment_log.md) showed that `hardware
 
 Replace the shared `task_vecs` passed to `_spur_tbb_task_vecs` with per-thread local copies via `tbb::combinable`. Each thread writes children into its own `tl_task_vecs.local()` (zero contention). After each window's `parallel_for_each`, a `combine_each` bulk-flushes per-thread children into the global `task_vecs` using `grow_by` (one atomic per non-empty band per thread).
 
-`_spur_tbb_task_vecs` is read-only — its signature takes `std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>&`. The local combinable holds the same type, so no interface change is needed; only the call site in `_spur_multiq` changes.
+`_spur_tbb_task_vecs` is read-only — its signature takes `std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>&`. The local combinable must hold the same nested type to match the signature. Each per-thread `tbb::concurrent_vector` still uses atomic operations internally (single-threaded), but single-threaded atomics are cheap — the dominant cost being eliminated is **cache-line thrashing** between threads contending on the same shared band. Uncontended atomics are an order of magnitude cheaper than heavily contested ones. The local bands are cleared via `clear()` after each flush; `tbb::concurrent_vector::clear()` does not release segment memory, but since the number of bands (`num_task_qs`) and segments are bounded, the TLS footprint per thread is bounded and stable after the first few windows.
 
 ### B: Thread Count Cap
 
-Cap `_num_workers` at 4: `_num_workers = std::min(hardware_concurrency(), 4u)`.
+Cap `_num_workers` at 4, but only when it would otherwise be set from `hardware_concurrency()` — do not override a value already explicitly set by a caller (e.g., via `set_num_workers()`):
+```cpp
+if (_num_workers == 0) {
+  _num_workers = std::min((size_t)std::thread::hardware_concurrency(), (size_t)4);
+}
+```
+This preserves the existing semantics of the `if (_num_workers == 0)` guard while capping the default.
 
 ---
 
@@ -58,9 +64,11 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
 
 ### Changes within `_spur_multiq`
 
-1. **Thread count cap** at initialization:
+1. **Thread count cap** inside the existing `if (_num_workers == 0)` guard (preserves caller-set values):
    ```cpp
-   _num_workers = std::min((size_t)std::thread::hardware_concurrency(), (size_t)4);
+   if (_num_workers == 0) {
+     _num_workers = std::min((size_t)std::thread::hardware_concurrency(), (size_t)4);
+   }
    ```
 
 2. **Declare `tl_task_vecs` combinable** at per-band scope (alongside the existing `local_paths` combinable, outside the `while (wbeg < wend)` loop):
@@ -103,7 +111,9 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
 - During processing of band `id`, the global `task_vecs[id]` is only extended (beyond `wend`) by the `combine_each` after each window — never by concurrent push_back mid-iteration.
 - Children landing in band `id` (same-band) appear beyond `wend` after the flush and are picked up by `wend = task_vecs[id].size()` in the next window iteration — identical to existing behavior.
 
-**No change to:** overflow promotion logic, window drain, drain_cv, or result finalization.
+**Drain phase:** The drain phase (lines ~2040–2120) also calls `_spur_tbb_task_vecs(pfxt, *pfx, task_vecs)` directly against the global `task_vecs`. This is intentionally left unchanged — `drain_count = 0` on all current benchmarks, so the drain phase contributes negligible runtime. If drain_count becomes non-zero in future workloads, the same per-thread buffering pattern can be applied there independently.
+
+**No change to:** overflow promotion logic, drain_cv, or result finalization.
 
 ---
 
@@ -124,7 +134,7 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
    ```bash
    rm -f big-table.csv
    for bm in leon2 leon3mp netcard; do
-     examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.edges
+     examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.golden
    done
    cat big-table.csv
    ```
