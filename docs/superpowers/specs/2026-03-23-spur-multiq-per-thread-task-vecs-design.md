@@ -167,8 +167,35 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
 
 ---
 
+## Checkpoints
+
+Before starting implementation, tag the current stable baseline so it can always be checked out for fresh comparison data:
+
+```bash
+git tag iter3-baseline   # current stable state (iter 3 code, 11T default)
+```
+
+Before each significant change (e.g., adding per-thread buffering, applying thread cap), commit and tag:
+
+```bash
+git tag iter5-tl-task-vecs       # after per-thread task_vecs lands
+git tag iter5-thread-cap         # after thread count cap added
+```
+
+To re-run baselines at any point:
+```bash
+git stash                        # or commit current WIP
+git checkout iter3-baseline
+cmake --build build --parallel
+# run big-table...
+git checkout main                # or your working branch
+git stash pop
+```
+
+---
+
 ## Risk
 
 **Low.** The combinable pattern is proven (used for `local_paths` since iter 1). The type passed to `_spur_tbb_task_vecs` is unchanged. The only new failure mode is a bug in the `combine_each` flush (e.g., off-by-one in `grow_by`) — straightforward to test and debug.
 
-**Revert path:** `git stash` or `git checkout ink/ink.cpp` back to iter 3 checkpoint if correctness fails after 3 fix attempts (per CLAUDE.md protocol).
+**Revert path:** `git checkout iter3-baseline -- ink/ink.cpp` if correctness fails after 3 fix attempts (per CLAUDE.md protocol).
