@@ -36,7 +36,13 @@ for (size_t qi = id; qi < num_task_qs; qi++) {
 
 ### Correctness
 
-Cost monotonicity guarantees every child's cost ≥ its parent's cost. A parent in band `id` has cost in `(bounds[id-1], bounds[id]]`. All children therefore have cost ≥ bounds[id-1], placing them in bands `>= id`. Bands `0..id-1` receive zero children during band `id`'s processing — they are provably empty in every thread's local copy. Skipping them is always safe.
+**Monotonicity derivation:** For any spur edge (u→v, weight w), the detour cost increment is `dists[v] + w - dists[u]`. By the SSSP triangle inequality, `dists[v] + w ≥ dists[u]` — if it were less, the SSSP would have routed through (u,v), contradicting optimality of `dists[u]`. Therefore the detour increment is always ≥ 0, and every child's cost ≥ its parent's cost. Note: overall path costs can be negative (e.g., `vga_lcd` has negative-cost golden paths) but the *incremental detour cost* is always non-negative, which is what matters here.
+
+**id=0 edge case:** At `id=0`, the scan starts at `qi=0` — identical to the existing behaviour. No bands are skipped. This is correct and safe.
+
+**Overflow band:** The outer loop (`for id = 0; id < num_task_qs-1`) never sets `id = num_task_qs-1`. The overflow band is handled separately by the overflow promotion block below the loop. The `combine_each` flush inside the active-band loop never runs for the overflow band, so there is no interaction.
+
+**Main argument:** A parent in band `id` has cost in `(bounds[id-1], bounds[id]]` (or `≤ bounds[0]` at id=0). All children have cost ≥ parent cost, so they land in bands `>= id`. Bands `0..id-1` receive zero children during band `id`'s processing — provably empty in every thread's local copy. Skipping them is always safe.
 
 ### Expected Impact
 
@@ -52,7 +58,15 @@ Average reduction: ~50%. At T=6 the per-window overhead drops from 600 to ~300 b
 
 ### Scope
 
-One character change in `ink/ink.cpp`. No other files touched.
+One line change in `ink/ink.cpp` (loop variable `0` → `id`) plus updating the stale comment at line ~1948 that currently reads:
+
+> "Children may land in any band (0..num_task_qs-1), including already-processed or not-yet-reached bands — the flush correctly covers all qi."
+
+This comment was written conservatively before the monotonicity argument was formally established. It must be corrected to:
+
+> "Children may land in bands >= id (cost monotonicity: child cost >= parent cost). Bands 0..id-1 are provably empty — scan starts at id."
+
+No other files are touched by step A.
 
 ---
 
@@ -76,16 +90,22 @@ pathgen.report_multiq(max_cost, min_cost, k, 20, false, true, false);
 
 ### Tuning Protocol
 
-Run the following sweep on leon2 at K=1M to find the smallest `num_queues` that maintains error=0.0:
+For each candidate Q, manually edit `big-table.cpp` to replace the `100` argument, rebuild, then verify all three large benchmarks (leon2, leon3mp, netcard) — not just leon2, since different graphs have different cost distributions and a Q that's correct on leon2 may fail on netcard:
 
 ```bash
+# Pseudocode — each iteration requires: edit big-table.cpp, cmake --build build --parallel, then run:
 for Q in 100 50 20 10; do
-  # edit big-table.cpp to use Q, rebuild, run
-  examples/cpathgen/big-table 1000000 benchmarks/leon2.edges golden/leon2.golden 4
+  # 1. Edit big-table.cpp: change 100 → Q in the report_multiq call
+  # 2. cmake --build build --parallel
+  rm -f big-table.csv
+  for bm in leon2 leon3mp netcard; do
+    examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.golden 4
+  done
+  echo "=== Q=$Q ===" && cat big-table.csv
 done
 ```
 
-Choose the smallest Q where `pathgen_avg_err=0.0` and `pathgen_max_err=0.0`. If error appears, use the next larger value.
+Choose the smallest Q where `pathgen_avg_err=0.0` and `pathgen_max_err=0.0` on **all three** benchmarks. If error appears on any benchmark, use the next larger value.
 
 ### Risk
 
@@ -99,9 +119,11 @@ Too few bands → wider cost buckets → more overflow promotions. The EQUAL pol
 
 ## Implementation Order
 
-1. **Apply A** (one-line change in `ink/ink.cpp`) → build → correctness check → scalability sweep → tag `iter6-id-start`
-2. **Apply B** (tune `big-table.cpp`) → sweep Q values → pick best → verify correctness → scalability sweep → tag `iter6-tuned-queues`
+1. **Apply A** (one-line change + comment update in `ink/ink.cpp`) → build → correctness check → scalability sweep → **commit** → tag `iter6-id-start`
+2. **Apply B** (tune `big-table.cpp`, starting from the iter6-id-start commit) → sweep Q values → pick best → verify correctness → scalability sweep → **commit** → tag `iter6-tuned-queues`
 3. **Final measurement** — full 3-benchmark run (leon2/leon3mp/netcard) at T=4 for experiment log
+
+> **Important:** Commit and tag after step A before beginning step B. The step B revert (`git checkout iter6-id-start -- examples/cpathgen/big-table.cpp`) requires this tag to exist.
 
 ---
 
@@ -135,16 +157,8 @@ Too few bands → wider cost buckets → more overflow promotions. The EQUAL pol
 
 ### After Step B
 
-5. Queue count sweep (leon2, K=1M, T=4):
-   ```bash
-   for Q in 100 50 20 10; do
-     # edit big-table.cpp: num_queues = Q, rebuild
-     rm -f big-table.csv
-     examples/cpathgen/big-table 1000000 benchmarks/leon2.edges golden/leon2.golden 4
-     echo "Q=$Q:" && cat big-table.csv
-   done
-   ```
-   Pick smallest Q with error=0.0.
+5. Queue count sweep (leon2/leon3mp/netcard, K=1M, T=4) — see Tuning Protocol above.
+   Pick smallest Q with error=0.0 on all three benchmarks.
 
 6. Scalability sweep at chosen Q (same as step 3 above).
 
@@ -180,6 +194,6 @@ git tag iter6-tuned-queues   # after step B
 # Revert A only:
 git checkout iter5-tl-task-vecs -- ink/ink.cpp
 
-# Revert B only:
-git checkout HEAD -- examples/cpathgen/big-table.cpp
+# Revert B only (requires iter6-id-start tag to exist — commit after step A first):
+git checkout iter6-id-start -- examples/cpathgen/big-table.cpp
 ```
