@@ -1945,14 +1945,14 @@ void Ink::_spur_multiq(
             }
           });
           // Flush per-thread child buffers into global task_vecs.
-          // Children may land in any band (0..num_task_qs-1), including already-processed
-          // or not-yet-reached bands — the flush correctly covers all qi.
+          // Children may land in bands >= id (cost monotonicity: child cost >= parent cost).
+          // Bands 0..id-1 are provably empty — scan starts at id.
           // clear() is called AFTER std::move, so all unique_ptrs are already null/moved-from
           // before clear() runs — safe. tbb::concurrent_vector::clear() does not release
           // segment memory, but per-thread footprint is bounded (num_task_qs bands) and
           // stable after the first few windows — the retained segments are reused next window.
           tl_task_vecs.combine_each([&](auto& local_tv) {
-            for (size_t qi = 0; qi < num_task_qs; qi++) {
+            for (size_t qi = id; qi < num_task_qs; qi++) {
               if (!local_tv[qi].empty()) {
                 auto it = task_vecs[qi].grow_by(local_tv[qi].size());
                 std::move(local_tv[qi].begin(), local_tv[qi].end(), it);
