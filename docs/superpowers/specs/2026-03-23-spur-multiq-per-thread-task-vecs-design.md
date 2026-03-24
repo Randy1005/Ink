@@ -120,15 +120,15 @@ Only `Ink::_spur_multiq` (`ink/ink.cpp:1865`). `_spur_tbb_task_vecs` and all oth
 ## Verification Plan
 
 1. Build: `cmake --build build --parallel`
-2. Correctness (K=20K, all 4 benchmarks):
+2. Correctness (K=1M, large benchmarks):
    ```bash
    rm -f big-table.csv
-   for bm in tv80 aes_core des_perf vga_lcd; do
-     examples/cpathgen/big-table 20000 benchmarks/${bm}.edges golden/${bm}.golden
+   for bm in vga_lcd leon2 leon3mp netcard; do
+     examples/cpathgen/big-table 1000000 benchmarks/${bm}.edges golden/${bm}.golden
    done
    cat big-table.csv
    ```
-   `pathgen_avg_err` and `pathgen_max_err` must both be `0.0`.
+   `pathgen_avg_err` and `pathgen_max_err` must both be `0.0` on all four.
 
 3. Performance (K=1M, primary benchmarks) — run at both 11T and 4T to compare against both baselines:
    ```bash
