@@ -1783,33 +1783,26 @@ void Ink::_spur_mlq(
 	 	}
 
 	 	if (!done) {
-	 		size_t num_promoted{0};
-	 	
-	 		// make sure we increase the bounds enough
-	 		// to promote at least some nodes
-	 		while (num_promoted == 0) {
-	 			// graph exhausted: overflow queue is empty, no more nodes to promote
-	 			if (tbb_task_vecs.back().empty()) {
-	 				done = true;
-	 				break;
-	 			}
-	 		  // update bound of first vec
-				bounds.front() = bounds[num_vecs-2]+delta;
-				// update bounds of all other vecs
-				for (size_t i = 1; i < num_vecs-1; i++) {
-					bounds[i] = bounds[i-1]+delta;
+			// O(1) bounds bump: compute in one shot how many full delta-steps are needed
+			// to promote the cheapest overflow node into the active range, then apply analytically.
+			// Formula: k_bumps = ceil((min_cost - B) / ((num_vecs-1)*delta))
+			// After k bumps: bounds[i] = B + ((k-1)*(num_vecs-1) + (i+1)) * delta
+			if (tbb_task_vecs.back().empty()) {
+				done = true;
+			}
+			else {
+				const float B = bounds[num_vecs-2];
+				auto min_it = std::min_element(
+					tbb_task_vecs.back().begin(),
+					tbb_task_vecs.back().end(),
+					[](const auto& a, const auto& b) { return a->cost < b->cost; });
+				const float min_cost = (*min_it)->cost;
+				const size_t k_bumps = std::max((size_t)1,
+					(size_t)std::ceil((double)(min_cost - B) / ((num_vecs-1) * (double)delta)));
+				for (size_t i = 0; i < num_vecs-1; i++) {
+					bounds[i] = B + (float)((k_bumps-1)*(num_vecs-1) + (i+1)) * delta;
 				}
-							 			
-	 			// count the number of promoted nodes in last queue
-	 			num_promoted = std::count_if(
-	 				std::execution::par_unseq,
-	 				tbb_task_vecs.back().begin(),
-	 				tbb_task_vecs.back().end(),
-	 				[&](const auto& pfx) {
-	 					assert(pfx);
-	 					return pfx->cost <= bounds[num_vecs-2];
-	 				});
-	 		}
+			}
 
 			// print bounds
 			// std::cout << "updated bounds: ";
@@ -1854,7 +1847,6 @@ void Ink::_spur_mlq(
 			auto new_size = std::distance(
 				tbb_task_vecs.back().begin(),
 				end);
-			assert(new_size == tbb_task_vecs.back().size()-num_promoted);
 
 	 		tbb_task_vecs.back().resize(new_size);
 
