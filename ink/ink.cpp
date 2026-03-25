@@ -1700,7 +1700,6 @@ void Ink::_spur_mlq(
 	std::optional<size_t> num_workers) {
 	size_t path_cnt{0};
 	bool done{false};
-	float prune_threshold = std::numeric_limits<float>::infinity();
 	size_t num_vecs{tbb_task_vecs.size()};
 	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> 
 		windows(num_vecs-1);
@@ -1746,11 +1745,7 @@ void Ink::_spur_mlq(
 							_spur_tbb_task_vecs(
 								pfxt,
 								*pfx.get(),
-								tbb_task_vecs,
-								id,
-								prune_threshold,
-								path_cnt,
-								K);
+								tbb_task_vecs);
 
 							// transfer ownership to per-thread local buffer (flushed after each window)
 							local_paths.local().push_back(std::move(pfx));
@@ -1759,11 +1754,7 @@ void Ink::_spur_mlq(
 				});
 
 				// Flush per-thread result buffers into _tbb_cv_paths after each window.
-				float window_max_cost = -std::numeric_limits<float>::infinity();
 				local_paths.combine_each([&](auto& v) {
-					for (const auto& p : v) {
-						if (p && p->cost > window_max_cost) window_max_cost = p->cost;
-					}
 					auto it = _tbb_cv_paths.grow_by(v.size());
 					std::move(v.begin(), v.end(), it);
 					v.clear();
@@ -1771,9 +1762,6 @@ void Ink::_spur_mlq(
 
 	 			// update path count
 	 			path_cnt += (wend-wbeg);
-				if (path_cnt >= K && window_max_cost < prune_threshold) {
-					prune_threshold = window_max_cost;
-				}
 
 	 			// update window
 	 			wbeg += (wend-wbeg);
@@ -1922,7 +1910,6 @@ void Ink::_spur_multiq(
   paths_cv.reserve(K); // pre-allocate segments to avoid incremental growth during grow_by
   size_t path_cnt = 0;
   bool done = false;
-  float prune_threshold = std::numeric_limits<float>::infinity();
 
   // --- Main expansion loop (cpathgen-style level + window) ---
   while (!done) {
@@ -1943,22 +1930,18 @@ void Ink::_spur_multiq(
       );
 
       while (wbeg < wend) {
-        float window_max_cost = -std::numeric_limits<float>::infinity();
         arena.execute([&] {
           oneapi::tbb::parallel_for_each(
             task_vecs[id].begin() + wbeg,
             task_vecs[id].begin() + wend,
             [&](auto& pfx) {
               if (!pfx) return;
-              _spur_tbb_task_vecs(pfxt, *pfx, tl_task_vecs.local(), id, prune_threshold, path_cnt, K);
+              _spur_tbb_task_vecs(pfxt, *pfx, tl_task_vecs.local());
               local_paths.local().push_back(std::move(pfx));
             });
           // Bulk-insert into paths_cv and clear local buffers for reuse next window.
           local_paths.combine_each([&](std::vector<std::unique_ptr<PfxtNode>>& v) {
             if (!v.empty()) {
-              for (const auto& p : v) {
-                if (p && p->cost > window_max_cost) window_max_cost = p->cost;
-              }
               auto it = paths_cv.grow_by(v.size());
               std::move(v.begin(), v.end(), it);
               v.clear();
@@ -1983,9 +1966,6 @@ void Ink::_spur_multiq(
         });
 
         path_cnt += (wend - wbeg);
-        if (path_cnt >= K && window_max_cost < prune_threshold) {
-          prune_threshold = window_max_cost;
-        }
         wbeg = wend;
         wend = task_vecs[id].size();
 
@@ -2922,13 +2902,9 @@ size_t Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
 
 
 void Ink::_spur_tbb_task_vecs(
-	Pfxt& pfxt,
-	PfxtNode& pfx,
-	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
-	size_t start_band,
-	float prune_threshold,
-	size_t path_cnt,
-	size_t k) {
+	Pfxt& pfxt, 
+	PfxtNode& pfx, 
+	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs) {
 
 	auto u = pfx.to;
   while (u != pfxt.sfxt.T) {
@@ -2949,36 +2925,31 @@ void Ink::_spur_tbb_task_vecs(
         // skip if the edge belongs to the suffix 
         // NOTE: we're detouring, so we don't want to
         // go on the same paths explored by the suffix tree
-        const auto enc = _encode_edge(*edge, w_sel);
-        if (pfxt.sfxt.links[u] && enc == *pfxt.sfxt.links[u]) {
+        if (pfxt.sfxt.links[u] &&
+            _encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
           continue;
         }
-
+      
         auto w = *edge->weights[w_sel];
-        auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u];
+        auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u]; 
         auto c = detour_cost + pfx.cost;
         auto dc = detour_cost + pfx.detour_cost;
 
-        // Early cost pruning: if K paths are found and c exceeds threshold,
-        // this child cannot reach the top-K (threshold only decreases).
-        if (path_cnt >= k && c > prune_threshold) {
-          continue;
-        }
+				// determine vec id
+				// TODO: can be implemented more efficient since
+				// we only spur nodes that have costs larger than
+				// the current queue
+				size_t vec_id{0};
+				for (; vec_id < task_vecs.size()-1; vec_id++) {
+					if (c < bounds[vec_id]) {
+						break;
+					}
+				}
+				assert(vec_id < task_vecs.size());
 
-        // Band scan starts at start_band: cost monotonicity guarantees
-        // child cost >= parent cost >= bounds[start_band-1], so bands
-        // below start_band are impossible.
-        size_t vec_id = start_band;
-        for (; vec_id < task_vecs.size()-1; vec_id++) {
-          if (c < bounds[vec_id]) {
-            break;
-          }
-        }
-        assert(vec_id < task_vecs.size());
-
-        // push to the corresponding task vector
-        task_vecs[vec_id].push_back(
-          std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, enc));
+				// push to the corresponding task vector
+				task_vecs[vec_id].push_back(
+					std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel)));
 			}
     }
 		u = *pfxt.sfxt.successors[u];
