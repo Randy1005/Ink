@@ -184,3 +184,48 @@ is low since the default is now capped at 4T, where iter5 is +6–34% faster acr
 benchmarks. vga_lcd sees the largest improvement (+34%), likely because it is a smaller
 graph that benefits most from reduced contention at 4T. Large graphs (leon2/leon3mp/netcard)
 gain a more modest but consistent +6–8%.
+
+---
+
+## Iteration 6
+
+**Optimizations:** (A) flush scan starts at `id` (cost monotonicity: bands 0..id-1 provably empty) + (B) num_task_qs reduced to 10 (was 100)
+
+### Outcome (K=1M, 5-run avg, T=4 default)
+
+| Benchmark | iter5 4T (ms) | iter6 4T (ms) | Δ%     |
+|-----------|---------------|---------------|--------|
+| leon2     | 252.7         | 261.2         | +3.4%  |
+| leon3mp   | 207.8         | 209.3         | +0.7%  |
+| netcard   | 226.1         | 231.5         | +2.4%  |
+
+### Scalability (leon2, K=1M)
+
+| threads | iter5 (ms) | iter6 (ms) | Δ%      |
+|---------|------------|------------|---------|
+| 2       | 324.9      | 310.3      | -4.5%   |
+| 4       | 242.3      | 242.0      | -0.1%   |
+| 6       | 367.0      | 267.3      | -27.2%  |
+| 8       | 268.5      | 260.0      | -3.2%   |
+| 10      | 274.6      | 261.2      | -4.9%   |
+
+drain_count: 0 (all benchmarks)
+pathgen_avg_err: 0.0 (all benchmarks)
+num_task_qs chosen: 10 (smallest passing from sweep Q=100,50,20,10)
+
+**Analysis:** At T=4 (the production default), iter6 is marginally slower than iter5 by
++0.7–3.4% across all three large benchmarks — within measurement noise but consistently
+in the wrong direction. The flush-scan shortcut (starting at `id` instead of 0) and
+Q=10 appear to trade the cost of more frequent overflow promotions for slightly less
+scan work per promotion; on these memory-bandwidth-bound graphs the net effect is neutral
+to slightly negative at T=4.
+
+The most notable result is at T=6: iter6 is 27.2% faster than iter5 (267ms vs 367ms).
+iter5 had a severe T=6 regression; iter6 recovers it almost entirely, suggesting that
+Q=10 (fewer queues, less per-thread combinable overhead) fixes the scalability cliff that
+iter5 exhibited at T=6 and above. At T=2, T=8, and T=10 iter6 is 3–5% faster than iter5
+as well.
+
+**Verdict:** No win at the default T=4. Regression is small but not an improvement.
+The T=6 scalability fix is a side benefit. Stopping here — further gains likely require
+profiling to identify the true bottleneck rather than structural algorithm changes.
