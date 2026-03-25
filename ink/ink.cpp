@@ -1723,13 +1723,6 @@ void Ink::_spur_mlq(
 	tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths;
 	_tbb_cv_paths.reserve(K);
 
-	// Per-thread child buffering: avoids concurrent push_back contention on tbb_task_vecs.
-	// combine_each flushes after each window via grow_by, starting at qi=id
-	// (cost monotonicity: child cost >= parent cost, so bands 0..id-1 are provably empty).
-	tbb::combinable<std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>> tl_task_vecs(
-		[&]{ return std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>(num_vecs); }
-	);
-
 	while (!done) {
 	 	for (size_t id = 0; id < num_vecs-1; id++) {
 			// initialize the window before spur
@@ -1752,7 +1745,7 @@ void Ink::_spur_mlq(
 							_spur_tbb_task_vecs(
 								pfxt,
 								*pfx.get(),
-								tl_task_vecs.local());
+								tbb_task_vecs);
 
 							// transfer ownership to per-thread local buffer (flushed after each window)
 							local_paths.local().push_back(std::move(pfx));
@@ -1765,18 +1758,6 @@ void Ink::_spur_mlq(
 					auto it = _tbb_cv_paths.grow_by(v.size());
 					std::move(v.begin(), v.end(), it);
 					v.clear();
-				});
-
-				// Flush per-thread child buffers into global tbb_task_vecs.
-				// Children may land in bands >= id -- scan starts at id.
-				tl_task_vecs.combine_each([&](auto& local_tv) {
-					for (size_t qi = id; qi < num_vecs; qi++) {
-						if (!local_tv[qi].empty()) {
-							auto it = tbb_task_vecs[qi].grow_by(local_tv[qi].size());
-							std::move(local_tv[qi].begin(), local_tv[qi].end(), it);
-							local_tv[qi].clear();
-						}
-					}
 				});
 
 	 			// update path count
@@ -1878,10 +1859,15 @@ void Ink::_spur_mlq(
 	 		tbb_task_vecs.back().resize(new_size);
 
 	 		// update window end
-			// Serial update -- num_vecs-1 is at most 9; parallel overhead exceeds benefit.
-			for (size_t idx = 0; idx < num_vecs-1; idx++) {
-				windows[idx].second.store(tbb_task_vecs[idx].size());
-			}
+			arena.execute([&] {
+				oneapi::tbb::parallel_for_each(
+					windows.begin(),
+					windows.end(),
+					[&](auto& win) {
+						size_t idx = &win-&windows[0];
+						win.second.store(tbb_task_vecs[idx].size());
+					});
+			});
 	 	}
 		num_steps++;
 		accum_path_cnt_per_step.emplace_back(path_cnt);
