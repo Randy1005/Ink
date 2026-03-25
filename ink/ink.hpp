@@ -749,7 +749,11 @@ private:
 	void _spur_tbb_task_vecs(
 		Pfxt& pfxt,
 		PfxtNode& pfx,
-		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs
+		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs,
+		size_t start_band = 0,
+		float prune_threshold = std::numeric_limits<float>::infinity(),
+		size_t path_cnt = 0,
+		size_t k = 0
 	);
 
   void _spur_multiq_relaxed(
