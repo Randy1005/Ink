@@ -65,6 +65,15 @@ endif()
 find_package(TBB REQUIRED)
 target_link_libraries(ink PUBLIC TBB::tbb)
 
+# mimalloc: drop-in malloc replacement for reduced allocation overhead
+find_package(mimalloc QUIET)
+if(mimalloc_FOUND)
+  target_link_libraries(ink PUBLIC mimalloc)
+  message(STATUS "mimalloc found — using as allocator")
+else()
+  message(STATUS "mimalloc not found — using system allocator")
+endif()
+
 
 
 target_compile_options(ink INTERFACE -Wall -Wextra -Wfatal-errors)
