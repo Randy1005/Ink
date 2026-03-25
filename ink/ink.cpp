@@ -1859,15 +1859,10 @@ void Ink::_spur_mlq(
 	 		tbb_task_vecs.back().resize(new_size);
 
 	 		// update window end
-			arena.execute([&] {
-				oneapi::tbb::parallel_for_each(
-					windows.begin(),
-					windows.end(),
-					[&](auto& win) {
-						size_t idx = &win-&windows[0];
-						win.second.store(tbb_task_vecs[idx].size());
-					});
-			});
+		// Serial update — at most num_vecs-1 = 9 elements; parallel overhead exceeds benefit.
+		for (size_t idx = 0; idx < windows.size(); idx++) {
+			windows[idx].second.store(tbb_task_vecs[idx].size());
+		}
 	 	}
 		num_steps++;
 		accum_path_cnt_per_step.emplace_back(path_cnt);
