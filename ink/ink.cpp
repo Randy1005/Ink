@@ -1703,8 +1703,12 @@ void Ink::_spur_mlq(
 	size_t num_vecs{tbb_task_vecs.size()};
 	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> 
 		windows(num_vecs-1);
-	tbb::task_arena arena(
-		num_workers.value_or(oneapi::tbb::this_task_arena::max_concurrency()));
+	size_t nw = num_workers.has_value()
+		? *num_workers
+		: std::min((size_t)std::thread::hardware_concurrency(), (size_t)4);
+	// 4T is the sweet spot on Apple M-series (memory-bandwidth-bound);
+	// same cap as _spur_multiq — see debug_session/experiment_log.md thread-scaling study.
+	tbb::task_arena arena(nw);
 
 	// reset steps
 	num_steps = 0;
@@ -1713,6 +1717,11 @@ void Ink::_spur_mlq(
 
 	Timer timer;
 	timer.start();
+
+	// Per-thread result buffering: avoids concurrent push_back contention on _tbb_cv_paths.
+	// combine_each flushes after each window via grow_by (one atomic reservation per thread).
+	tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths;
+	_tbb_cv_paths.reserve(K);
 
 	while (!done) {
 	 	for (size_t id = 0; id < num_vecs-1; id++) {
@@ -1738,10 +1747,17 @@ void Ink::_spur_mlq(
 								*pfx.get(),
 								tbb_task_vecs);
 
-							// transfer ownership to path set
-							_tbb_cv_paths.push_back(std::move(pfx));
+							// transfer ownership to per-thread local buffer (flushed after each window)
+							local_paths.local().push_back(std::move(pfx));
 							assert(!pfx);
 						});
+				});
+
+				// Flush per-thread result buffers into _tbb_cv_paths after each window.
+				local_paths.combine_each([&](auto& v) {
+					auto it = _tbb_cv_paths.grow_by(v.size());
+					std::move(v.begin(), v.end(), it);
+					v.clear();
 				});
 
 	 			// update path count
