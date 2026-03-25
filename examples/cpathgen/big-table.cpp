@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
       max_cost,
       min_cost,
       k,
-      100,
+      10,   // num_queues: 10 cost bands; empirically sufficient for K=1M (was 100)
       false,
       true,
       false);
