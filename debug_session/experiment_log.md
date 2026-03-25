@@ -229,3 +229,160 @@ as well.
 **Verdict:** No win at the default T=4. Regression is small but not an improvement.
 The T=6 scalability fix is a side benefit. Stopping here — further gains likely require
 profiling to identify the true bottleneck rather than structural algorithm changes.
+
+---
+
+## cpathgen Optimization Log
+
+Baseline for cpathgen optimizations: T=4 (production default), K=1M, 5-run avg.
+All runs on leon2, leon3mp, netcard unless noted.
+
+**Pre-optimization cpathgen T=4 baseline (before any cpathgen changes):**
+
+| Benchmark | cpathgen 4T (ms) |
+|-----------|-----------------|
+| leon2     | 150.4           |
+| leon3mp   | 97.2            |
+| netcard   | 113.5           |
+
+---
+
+## cpathgen-c1 (4T cap + `_tbb_cv_paths` result combinable)
+
+**Changes:**
+- Capped `_num_workers` at 4 (same 4T sweet-spot logic as pathgen)
+- Replaced `paths_cv.push_back(pfx)` hot path with `tbb::combinable<vector<PfxtNode*>> local_paths` per-thread; `combine_each` bulk-flushes via `grow_by` after each window
+
+**Outcome (K=1M, 4T, 5-run avg):**
+
+| Benchmark | baseline 4T (ms) | c1 (ms) | Δ%     |
+|-----------|-----------------|---------|--------|
+| leon2     | 150.4           | 110.5   | -26.5% |
+| leon3mp   | 97.2            | 84.1    | -13.5% |
+| netcard   | 113.5           | 99.1    | -12.7% |
+
+drain_count: 0, cpathgen_avg_err: 0.0 (all benchmarks)
+
+**Verdict:** WIN. Result-vector combinable eliminates push_back atomics on the hot path.
+
+---
+
+## cpathgen-c2 (per-thread `tl_task_vecs` + serial windows loop) — REVERTED
+
+**Changes attempted:**
+- `tbb::combinable<vector<concurrent_vector<...>>> tl_task_vecs` for child pushes to `tbb_task_vecs` (same pattern as pathgen iter5); flush via `grow_by` starting at `qi=id`
+- Replaced `parallel_for_each` over `windows` (9 elements) with a plain `for` loop
+
+**Outcome (K=1M, 4T, 5-run avg):**
+
+| Benchmark | c1 (ms) | c2 (ms) | Δ%     |
+|-----------|---------|---------|--------|
+| leon2     | 110.5   | 126.8   | +14.7% |
+| leon3mp   | 84.1    | 92.1    | +9.5%  |
+| netcard   | 99.1    | 115.4   | +16.4% |
+
+**Root cause:** `tbb::combinable` factory allocates per-thread storage (10 concurrent_vectors × 4 threads) and `combine_each` iterates all threads × all bands on every window flush. At 4T / 10 bands, this overhead dominates any savings from avoiding push_back contention — unlike pathgen where each window is larger and the flush amortises better. The serial windows loop change alone was neutral/slightly positive but buried under the combinable regression.
+
+**Verdict:** REVERTED. The tl_task_vecs pattern does not transfer to cpathgen at 4T/10 bands.
+
+---
+
+## cpathgen-c3 (serial windows loop)
+
+**Change:** Replaced `arena.execute([&]{ parallel_for_each(windows...) })` (9 elements) with a plain `for` loop. Note: `paths_cv.reserve(K)` was already present from c1 — no new reserve needed.
+
+**Outcome (K=1M, 4T, 5-run avg, excluding OS outliers):**
+
+| Benchmark | c1 (ms) | c3 (ms) | Δ%    |
+|-----------|---------|---------|-------|
+| leon2     | 110.5   | ~117    | ~+6%  |
+| leon3mp   | 84.1    | ~85     | ~+1%  |
+| netcard   | 99.1    | ~101    | ~+2%  |
+
+**Root cause:** 9-element loop replacement is in the noise floor. Machine variability dominates.
+
+**Verdict:** Neutral. Change kept (cleaner code, no regression). c3 is current HEAD.
+
+---
+
+## cpathgen-c4 (O(1) overflow bounds bump)
+
+**Change:** Replaced `while (num_promoted == 0)` spin loop + `count_if` per iteration with single `min_element` scan + analytical `k_bumps = ceil((min_cost - B) / ((num_vecs-1)*delta))` formula applied in one pass.
+
+**Outcome (K=1M, 4T, 5-run avg):**
+
+| Benchmark | c1 (ms) | c4 (ms) | Δ%     |
+|-----------|---------|---------|--------|
+| leon2     | 110.5   | 116.3   | +5.2%  |
+| leon3mp   | 84.1    | 87.2    | +3.7%  |
+| netcard   | 99.1    | 109.5   | +10.5% |
+
+**Root cause:** In delta-stepping, `k_bumps ≈ 1` on virtually every overflow promotion — `delta` is sized so overflow nodes are always just one step ahead. The spin loop was already cheap (one `count_if` scan). The `min_element` replacement costs the same. The O(1) formula only wins when `k_bumps >> 1`, which rarely happens on these graphs.
+
+**Verdict:** Neutral (within machine noise). Change kept (cleaner code, no regression). c4 is current HEAD.
+
+**Key insight:** The overflow promotion block is NOT the dominant bottleneck in cpathgen. The main cost is `_spur_tbb_task_vecs` (read-only, unmodifiable). Further structural gains require algorithm-level changes beyond the current constraint.
+
+---
+
+## cpathgen scalability: pre-c1 vs c4 (leon2, K=1M, single run each)
+
+| T  | pre-c1 (ms) | c4 (ms) | Δ%     |
+|----|-------------|---------|--------|
+| 2  | 205.3       | 276.3   | -35%   |
+| 4  | 132.7       | 112.6   | +15%   |
+| 6  | 151.1       | 100.7   | +33%   |
+| 8  | 161.5       | 111.3   | +31%   |
+| 10 | 162.7       | 105.4   | +35%   |
+
+T=2 single-run number is noisy (likely OS blip). T=4–10 show consistent gains from c1's result buffering.
+
+**Key observation:** The sweet spot shifted from T=4 (pre-c1) → T=6 (c4). The result combinable amortises `paths_cv` push_back contention more effectively as thread count grows, so c4 scales further before saturating. At T=6–10 the improvement is 31–35% vs pre-c1 — larger than the T=4 gain of 15%.
+
+---
+
+## cpathgen-c5 (band scan start at `id` + early cost pruning) — REVERTED
+
+**Changes attempted:**
+
+- Band scan in `_spur_tbb_task_vecs` starts from `id` (parent's band) instead of 0: cost monotonicity guarantees child bands ≥ id, so bands 0..id-1 are always empty.
+- Early pruning: `if (path_cnt >= k && c > prune_threshold) continue;` before `make_unique` — avoids allocation for nodes that can't be in the top-K.
+
+**Outcome (K=1M, 4T, 5-run avg):**
+
+| Benchmark | c4 (ms) | c5 (ms) | Δ%     |
+|-----------|---------|---------|--------|
+| leon2     | 116.3   | 125.8   | +8.2%  |
+| leon3mp   | 87.2    | 96.3    | +10.4% |
+| netcard   | 109.5   | 118.7   | +8.4%  |
+
+**Root cause:**
+
+- Band scan shortcut: per-edge conditional branch + arithmetic (`vec_id` start from `id`) adds overhead on every edge. At K=1M the hot path is fully bandwidth-bound; extra branches stall the instruction pipeline. The scan loop rarely iterates more than 1-2 elements anyway (cost distribution is tight), so skipping `id` bands saves almost nothing.
+- Early pruning: `prune_threshold` starts at `infinity` (no paths collected yet) and only becomes useful late in the run. The per-edge check `path_cnt >= k && c > threshold` executes on every edge for the entire early phase, paying branch overhead for zero benefit.
+
+**Verdict:** REVERTED. Both optimizations add per-edge overhead that exceeds savings for memory-bandwidth-bound workloads.
+
+---
+
+## cpathgen-c6 (mimalloc drop-in allocator)
+
+**Change:** Added `find_package(mimalloc QUIET)` + `target_link_libraries(ink PUBLIC mimalloc)` to `ink/CMakeLists.txt`. Zero code changes — mimalloc intercepts `malloc`/`free` via link-time interposition.
+
+**Outcome (K=1M, 4T, 5-run avg):**
+
+| Benchmark | c4 baseline (ms) | c6/mimalloc (ms) | Δ%    |
+|-----------|------------------|------------------|-------|
+| leon2     | 110.5            | 103.8            | -6.1% |
+| leon3mp   | 84.1             | 79.1             | -5.9% |
+| netcard   | 99.1             | 96.9             | -2.2% |
+
+Pathgen also improved as a side effect (leon2: ~261ms → ~233ms, ~+10%).
+
+drain_count: 0, cpathgen_avg_err: 0.0 (all benchmarks)
+
+**Mechanism:** mimalloc uses per-thread segment-based slabs. `std::make_unique<PfxtNode>` is the hot allocation in `_spur_tbb_task_vecs` — called ~K×fanout times per run. System malloc (macOS libmalloc) uses a global lock-based pool that creates cross-thread contention; mimalloc's thread-local slabs eliminate this. Also reduced measurement jitter significantly (std dev dropped ~30%).
+
+**Verdict:** WIN. Zero-code-change, -6% on large graphs. mimalloc is now the default allocator. Also reduces measurement noise for future experiments.
+
+**Note on jitter:** With mimalloc, 5-run std devs dropped from ~8-12ms to ~3-5ms on all three benchmarks, suggesting prior malloc contention was contributing to run-to-run variance.

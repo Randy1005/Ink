@@ -13,6 +13,15 @@ import asyncio
 import os
 from pathlib import Path
 
+# Load .env from project root if present
+_env_file = Path(__file__).parent.parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -97,12 +106,31 @@ def format_code_context(code: dict[str, str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Token usage accumulator
+# ---------------------------------------------------------------------------
+_token_log: list[dict] = []  # [{label, input, output}]
+
+
+def _print_token_summary() -> None:
+    if not _token_log:
+        return
+    print("\n=== Token Usage Summary ===", flush=True)
+    total_in = total_out = 0
+    for entry in _token_log:
+        i, o = entry["input"], entry["output"]
+        total_in += i; total_out += o
+        print(f"  [{entry['label']}]  input={i:,}  output={o:,}  total={i+o:,}", flush=True)
+    print(f"  --- TOTAL ---  input={total_in:,}  output={total_out:,}  total={total_in+total_out:,}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Async streaming helper
 # ---------------------------------------------------------------------------
 async def stream_agent(system: str, user: str, label: str) -> str:
     print(f"[{label}] thinking...", flush=True)
     chunks: list[str] = []
     client = _async_client()
+    input_tokens = output_tokens = 0
 
     if PROVIDER == "anthropic":
         async with client.messages.stream(
@@ -116,6 +144,9 @@ async def stream_agent(system: str, user: str, label: str) -> str:
                 if (event.type == "content_block_delta"
                         and hasattr(event.delta, "text")):
                     chunks.append(event.delta.text)
+            final = await stream.get_final_message()
+            input_tokens  = final.usage.input_tokens
+            output_tokens = final.usage.output_tokens
     else:
         stream = await client.chat.completions.create(
             model=fast_model(),
@@ -125,13 +156,18 @@ async def stream_agent(system: str, user: str, label: str) -> str:
                 {"role": "user",   "content": user},
             ],
             stream=True,
+            stream_options={"include_usage": True},
         )
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 chunks.append(chunk.choices[0].delta.content)
+            if chunk.usage:
+                input_tokens  = chunk.usage.prompt_tokens
+                output_tokens = chunk.usage.completion_tokens
 
+    _token_log.append({"label": label, "input": input_tokens, "output": output_tokens})
     result = "".join(chunks)
-    print(f"[{label}] done ({len(result)} chars)", flush=True)
+    print(f"[{label}] done  chars={len(result)}  in={input_tokens:,}  out={output_tokens:,}", flush=True)
     return result
 
 
@@ -274,6 +310,7 @@ async def async_main() -> None:
 
     print("\n✓ Done. Read debug_session/03_plan.md for optimization proposals.", flush=True)
     print("  Claude will evaluate and implement the best direction.", flush=True)
+    _print_token_summary()
 
 
 def main() -> None:
