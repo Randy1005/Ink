@@ -1,27 +1,29 @@
 # Token Consumption Analysis
 
 **Metric: output tokens per optimization pass**
-(one complete "what should we do next?" cycle)
+(one complete cycle: analysis → proposal → implementation → verification)
 
 ---
 
-## Comparable: Proposal / Planning Phase
+## Per-Pass Comparison
 
 | Role | System | Output tokens / pass | What it does |
 |------|--------|---------------------|--------------|
-| Explorer + Analyzer + Planner | Gemini 2.5 Flash | **10,964** | Re-reads codebase + benchmark data fresh each run; generates ranked proposals |
-| Critic (plan evaluation) | Claude Sonnet 4.6 | **~1,300** | Reads Gemini's plan, evaluates proposals, picks direction |
+| Explorer + Analyzer + Planner | Gemini 2.5 Flash (debug_agent.py) | **10,964** | Re-reads codebase + benchmark data fresh each run; generates ranked proposals |
+| Critic | Claude Sonnet 4.6 (Claude Code + superpowers) | **~105,000** | Evaluates plan, picks direction, writes code, debugs build failures, verifies correctness |
 
-Both answer: *"what should we implement next?"*
+The two roles form a pipeline: Gemini proposes, Claude executes.
 
 ---
 
-## Not Comparable: Implementation Phase (Claude only)
+## Per-Agent Breakdown (Gemini side, one run)
 
-| Role | System | Output tokens / pass | What it does |
-|------|--------|---------------------|--------------|
-| Coder + Fixer + Verifier | Claude Sonnet 4.6 | **~104,000** | Writes code, debugs build failures, runs benchmarks, iterates to correctness |
-| — | Gemini | — | Not performed |
+| Agent     | Input tokens | Output tokens |
+|-----------|--------------|---------------|
+| Explorer  | 10,136       | 4,848         |
+| Analyzer  | 10,555       | 3,003         |
+| Planner   | 18,119       | 3,113         |
+| **Total** | **38,810**   | **10,964**    |
 
 ---
 
@@ -30,7 +32,7 @@ Both answer: *"what should we implement next?"*
 | System | Output tokens | Passes / runs |
 |--------|--------------|---------------|
 | debug_agent.py (Gemini 2.5 Flash) | ~43,900 | 4 runs |
-| Claude Code (all phases) | 1,049,309 | 10 passes |
+| Claude Code + superpowers (Critic) | 1,049,309 | 10 passes |
 
 ---
 
@@ -39,6 +41,5 @@ Both answer: *"what should we implement next?"*
 - **Output tokens** = model-generated tokens only; independent of user prompt length or context reuse patterns.
 - **Claude Code totals** are exact, measured from Claude Code session JSONL files (`~/.claude/projects/*/**.jsonl`).
 - **Gemini totals** are exact per run, measured via `stream_options={"include_usage": True}` added to `scripts/debug_agent.py`.
-- **Claude critic estimate** (~1,300 tokens/pass) is derived by identifying plan-evaluation turns in the JSONL via keyword matching on output text.
 - **Passes**: 10 total (iter3–6 for pathgen + cpathgen c1–c6). **Runs**: 4 debug_agent.py invocations across the project.
 - Claude Code uses prompt caching extensively; cache-read tokens (~296M) are not counted as output tokens and are billed at ~10× lower rate.
