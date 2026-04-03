@@ -131,10 +131,8 @@ add_subdirectory(${INK_3RD_PARTY_DIR}/PEGTL)
 add_subdirectory(${INK_3RD_PARTY_DIR}/OpenTimer)
 # concurrentqueue is header-only, no CMakeLists.txt needed
 
-# On macOS, use system TBB (e.g. from Homebrew) instead of building from source,
-# since the oneTBB submodule may not be initialized on this platform.
+# Prefer system TBB on all platforms; fall back to oneTBB submodule only if needed.
 if(APPLE)
-  # Homebrew installs TBB cmake config under its cellar; point CMake there.
   execute_process(
     COMMAND brew --prefix tbb
     OUTPUT_VARIABLE HOMEBREW_TBB_PREFIX
@@ -144,8 +142,19 @@ if(APPLE)
     list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_TBB_PREFIX}")
     message(STATUS "Using Homebrew TBB at: ${HOMEBREW_TBB_PREFIX}")
   endif()
-else()
+endif()
+
+find_package(TBB QUIET)
+if(NOT TBB_FOUND)
+  message(STATUS "System TBB not found — building from oneTBB submodule")
+  if(NOT EXISTS "${INK_3RD_PARTY_DIR}/oneTBB/CMakeLists.txt")
+    message(FATAL_ERROR "oneTBB submodule not initialized. Run:\n"
+      "  git submodule update --init 3rd-party/oneTBB\n"
+      "Or install system TBB (Ubuntu: sudo apt install libtbb-dev)")
+  endif()
   add_subdirectory(${INK_3RD_PARTY_DIR}/oneTBB)
+else()
+  message(STATUS "Using system TBB")
 endif()
 
 add_subdirectory(${INK_EXAMPLE_DIR})
