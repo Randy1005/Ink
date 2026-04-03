@@ -39,3 +39,33 @@ multiple steps; Phase 1 static sweep will map where the 1-step boundary lies.
 ---
 
 *Rounds below are appended automatically by `scripts/autoloop.py`.*
+
+---
+## Round 1 — static delta=0.1
+
+**Phase 1** | Config ID 1
+
+### Parameters
+
+| param | value |
+|---|---|
+| delta_init | 0.1 |
+| target_pps | 0.0 |
+| scale_up | 1.0 |
+| scale_down | 1.0 |
+| delta_min | 0.1 |
+| delta_max | 100.0 |
+
+### Results (K=1M, 16 threads)
+
+| benchmark | time_ms | avg_err | max_err | steps | avg_pps | d_min | d_max |
+|---|---|---|---|---|---|---|---|
+| leon2 | 126.7 | 0.0000 | 0.0000 | 4 | 254294 | 0.100 | 0.100 |
+| leon3mp | 122.7 | 0.0000 | 0.0000 | 5 | 200259 | 0.100 | 0.100 |
+| netcard | 120.9 | 0.0000 | 0.0000 | 4 | 251647 | 0.100 | 0.100 |
+
+**Avg time across benchmarks:** 123.4 ms
+
+**Verdict:** ➖ plateau      (123.4 ms avg)
+
+**Best so far:** static delta=0.1 @ 123.43333333333334 ms
