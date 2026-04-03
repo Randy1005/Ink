@@ -33,6 +33,11 @@ K           = 1_000_000
 NUM_THREADS = 16
 NUM_QUEUES  = 10
 
+# A Phase 2 adaptive rule "wins" on a benchmark if its time is within this
+# fraction of the per-benchmark oracle (best Phase 1 static delta result).
+# 1.10 = within 10% of the best possible fixed-delta runtime.
+WIN_THRESHOLD = 1.10
+
 # ── config queue generation ────────────────────────────────────────────────────
 def generate_queue():
     """Return the full list of configs to test, in order."""
@@ -153,6 +158,41 @@ def run_benchmark(config, benchmark):
     return result
 
 
+# ── oracle + scoring ──────────────────────────────────────────────────────────
+def compute_oracle(completed):
+    """
+    From Phase 1 completed entries, return the best (lowest) correct time_ms
+    per benchmark.  Returns dict: {benchmark: {"time_ms": ..., "delta": ...}}
+    """
+    oracle = {}
+    for entry in completed:
+        if entry["config"]["phase"] != 1 or not entry["all_correct"]:
+            continue
+        for bm, r in entry["results"].items():
+            if r["avg_err"] != 0.0 or r["max_err"] != 0.0:
+                continue
+            if bm not in oracle or r["time_ms"] < oracle[bm]["time_ms"]:
+                oracle[bm] = {"time_ms": r["time_ms"],
+                               "delta": entry["config"]["delta"]}
+    return oracle
+
+
+def score_vs_oracle(bm_results, oracle):
+    """
+    For each benchmark, compute ratio = time / oracle_time.
+    Returns list of (bm, ratio, win) sorted by benchmark name.
+    win = ratio <= WIN_THRESHOLD
+    """
+    scores = []
+    for bm, r in bm_results.items():
+        if bm not in oracle or r["avg_err"] != 0.0:
+            scores.append((bm, None, False))
+            continue
+        ratio = r["time_ms"] / oracle[bm]["time_ms"]
+        scores.append((bm, ratio, ratio <= WIN_THRESHOLD))
+    return sorted(scores)
+
+
 # ── progress log ───────────────────────────────────────────────────────────────
 def append_round(cfg, config, bm_results, round_num):
     """Append a round entry to progress_log.md."""
@@ -160,17 +200,6 @@ def append_round(cfg, config, bm_results, round_num):
                        for r in bm_results.values())
     avg_ms = (sum(r["time_ms"] for r in bm_results.values())
               / len(bm_results))
-    best_ms = cfg["best"]["avg_ms"]
-    if best_ms is None:
-        verdict = "⬜ first result"
-    elif not all_zero_err:
-        verdict = "❌ error > 0"
-    elif avg_ms < best_ms * 0.99:
-        verdict = f"✅ improvement  ({best_ms:.1f} → {avg_ms:.1f} ms avg)"
-    elif avg_ms > best_ms * 1.01:
-        verdict = f"🔻 regression   ({best_ms:.1f} → {avg_ms:.1f} ms avg)"
-    else:
-        verdict = f"➖ plateau      ({avg_ms:.1f} ms avg)"
 
     lines = [
         f"\n---\n",
@@ -194,11 +223,101 @@ def append_round(cfg, config, bm_results, round_num):
             f"{r['max_err']:.4f} | {r['num_steps']} | {r['avg_pps']:.0f} | "
             f"{r['delta_min']:.3f} | {r['delta_max']:.3f} |\n"
         )
-    lines += [
-        f"\n**Avg time across benchmarks:** {avg_ms:.1f} ms\n\n",
-        f"**Verdict:** {verdict}\n\n",
-        f"**Best so far:** {cfg['best']['label']} @ {cfg['best']['avg_ms'] or 'TBD'} ms\n",
+    lines.append(f"\n**Avg time:** {avg_ms:.1f} ms\n")
+
+    # Phase 2: score vs oracle
+    if config["phase"] == 2:
+        oracle = compute_oracle(cfg["completed"])
+        if oracle:
+            scores = score_vs_oracle(bm_results, oracle)
+            wins = sum(1 for _, _, w in scores if w)
+            lines.append(f"\n### Oracle comparison (win = within {int((WIN_THRESHOLD-1)*100)}% of best static delta)\n\n")
+            lines.append(f"| benchmark | oracle_ms (best δ) | this_ms | ratio | win? |\n")
+            lines.append(f"|---|---|---|---|---|\n")
+            for bm, ratio, win in scores:
+                o = oracle.get(bm, {})
+                r = bm_results[bm]
+                ratio_str = f"{ratio:.3f}" if ratio is not None else "—"
+                win_str = "✅" if win else "❌"
+                lines.append(
+                    f"| {bm} | {o.get('time_ms','?'):.1f} (δ={o.get('delta','?')}) "
+                    f"| {r['time_ms']:.1f} | {ratio_str} | {win_str} |\n"
+                )
+            lines.append(f"\n**Win rate: {wins}/{len(scores)} benchmarks**\n")
+
+    with open(PROGRESS_LOG, "a") as f:
+        f.writelines(lines)
+
+
+def append_phase1_summary(cfg):
+    """Write oracle table after Phase 1 is complete."""
+    oracle = compute_oracle(cfg["completed"])
+    lines = [
+        "\n---\n\n## Phase 1 Complete — Oracle Established\n\n",
+        "Best static delta per benchmark:\n\n",
+        "| benchmark | oracle delta | oracle time_ms |\n|---|---|---|\n",
     ]
+    for bm, o in sorted(oracle.items()):
+        lines.append(f"| {bm} | {o['delta']} | {o['time_ms']:.1f} |\n")
+    lines.append(
+        f"\nPhase 2 (adaptive rules) will be scored against these oracle times.\n"
+        f"**Win threshold: within {int((WIN_THRESHOLD-1)*100)}% of oracle.**\n"
+    )
+    with open(PROGRESS_LOG, "a") as f:
+        f.writelines(lines)
+
+
+def append_final_summary(cfg):
+    """Write ranked summary of all Phase 2 rules after search is complete."""
+    oracle = compute_oracle(cfg["completed"])
+    if not oracle:
+        return
+
+    # Score every Phase 2 completed entry
+    ranked = []
+    for entry in cfg["completed"]:
+        if entry["config"]["phase"] != 2 or not entry["all_correct"]:
+            continue
+        scores = score_vs_oracle(entry["results"], oracle)
+        wins = sum(1 for _, _, w in scores if w)
+        avg_ratio = sum(r for _, r, _ in scores if r is not None) / max(
+            1, sum(1 for _, r, _ in scores if r is not None))
+        ranked.append((wins, -avg_ratio, entry["config"], entry["avg_ms"], scores))
+
+    ranked.sort(reverse=True)  # most wins first, then best avg ratio
+
+    lines = [
+        "\n---\n\n## Final Summary — Adaptive Rule Ranking\n\n",
+        f"Oracle baseline (best static delta per benchmark): "
+        + ", ".join(f"{bm}={o['time_ms']:.1f}ms(δ={o['delta']})" for bm,o in sorted(oracle.items()))
+        + "\n\n",
+        f"Win threshold: within {int((WIN_THRESHOLD-1)*100)}% of oracle.\n\n",
+        "### Top adaptive rules\n\n",
+        "| rank | label | wins | avg_ratio | d0 | tpps | scale_up | scale_dn |\n",
+        "|---|---|---|---|---|---|---|---|\n",
+    ]
+    for i, (wins, neg_ratio, config, avg_ms, _) in enumerate(ranked[:10], 1):
+        lines.append(
+            f"| {i} | {config['label']} | {wins}/{len(oracle)} "
+            f"| {-neg_ratio:.3f} | {config['delta']} | {config['target_pps']:.0f} "
+            f"| {config['scale_up']} | {config['scale_down']} |\n"
+        )
+
+    if ranked:
+        best_wins, _, best_cfg, _, best_scores = ranked[0]
+        lines += [
+            f"\n### Recommended universal rule\n\n",
+            f"```\n",
+            f"delta_init  = {best_cfg['delta']}\n",
+            f"target_pps  = {best_cfg['target_pps']:.0f}\n",
+            f"scale_up    = {best_cfg['scale_up']}\n",
+            f"scale_down  = {best_cfg['scale_down']}\n",
+            f"delta_min   = {best_cfg['delta_min']}\n",
+            f"delta_max   = {best_cfg['delta_max']}\n",
+            f"```\n",
+            f"\nWins on {best_wins}/{len(oracle)} benchmarks "
+            f"({100*best_wins//len(oracle)}%).\n",
+        ]
 
     with open(PROGRESS_LOG, "a") as f:
         f.writelines(lines)
@@ -269,12 +388,26 @@ def main():
 
         # Update log and persist
         append_round(cfg, config, bm_results, round_num)
+
+        # After the last Phase 1 config, write the oracle summary
+        next_phase = cfg["queue"][0]["phase"] if cfg["queue"] else None
+        if config["phase"] == 1 and next_phase == 2:
+            append_phase1_summary(cfg)
+
         save_config(cfg)
 
-        # Commit after each round so progress is visible even if the run is interrupted
+        # Commit after each round so progress is visible even if interrupted
         git_commit_push(round_num, config["label"])
 
-    print(f"\nAutoloop complete. Best: {cfg['best']['label']} @ {cfg['best']['avg_ms']:.1f} ms")
+    # Final ranking table
+    append_final_summary(cfg)
+    save_config(cfg)
+    git_commit_push("final", "complete — see Final Summary")
+
+    if cfg["best"]["avg_ms"] is not None:
+        print(f"\nAutoloop complete. Best: {cfg['best']['label']} @ {cfg['best']['avg_ms']:.1f} ms")
+    else:
+        print("\nAutoloop complete.")
 
 
 if __name__ == "__main__":
