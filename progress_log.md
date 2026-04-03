@@ -309,3 +309,33 @@ multiple steps; Phase 1 static sweep will map where the 1-step boundary lies.
 **Verdict:** 🔻 regression   (50.2 → 113.7 ms avg)
 
 **Best so far:** static delta=2.0 @ 50.20000000000001 ms
+
+---
+## Round 10 — adaptive d0=0.5 tpps=50000 up=1.5 dn=0.7
+
+**Phase 2** | Config ID 10
+
+### Parameters
+
+| param | value |
+|---|---|
+| delta_init | 0.5 |
+| target_pps | 50000.0 |
+| scale_up | 1.5 |
+| scale_down | 0.7 |
+| delta_min | 0.1 |
+| delta_max | 50.0 |
+
+### Results (K=1M, 16 threads)
+
+| benchmark | time_ms | avg_err | max_err | steps | avg_pps | d_min | d_max |
+|---|---|---|---|---|---|---|---|
+| leon2 | 54.5 | 0.0000 | 0.0000 | 1 | 1124444 | 0.300 | 0.300 |
+| leon3mp | 48.3 | 0.0000 | 0.0000 | 1 | 1001296 | 0.300 | 0.300 |
+| netcard | 51.0 | 0.0000 | 0.0000 | 1 | 1039476 | 0.300 | 0.300 |
+
+**Avg time across benchmarks:** 51.3 ms
+
+**Verdict:** 🔻 regression   (50.2 → 51.3 ms avg)
+
+**Best so far:** static delta=2.0 @ 50.20000000000001 ms
