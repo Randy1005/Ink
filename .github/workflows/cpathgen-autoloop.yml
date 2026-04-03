@@ -1,9 +1,7 @@
 name: cpathgen delta autoloop
 
 on:
-  workflow_dispatch:       # manual trigger from GitHub UI
-  schedule:
-    - cron: '0 2 * * *'   # daily at 02:00 UTC (re-runs if queue refilled)
+  workflow_dispatch:       # trigger manually from GitHub UI once per search run
 
 jobs:
   autoloop:
