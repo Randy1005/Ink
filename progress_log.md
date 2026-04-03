@@ -69,3 +69,33 @@ multiple steps; Phase 1 static sweep will map where the 1-step boundary lies.
 **Verdict:** ➖ plateau      (123.4 ms avg)
 
 **Best so far:** static delta=0.1 @ 123.43333333333334 ms
+
+---
+## Round 2 — static delta=0.5
+
+**Phase 1** | Config ID 2
+
+### Parameters
+
+| param | value |
+|---|---|
+| delta_init | 0.5 |
+| target_pps | 0.0 |
+| scale_up | 1.0 |
+| scale_down | 1.0 |
+| delta_min | 0.1 |
+| delta_max | 100.0 |
+
+### Results (K=1M, 16 threads)
+
+| benchmark | time_ms | avg_err | max_err | steps | avg_pps | d_min | d_max |
+|---|---|---|---|---|---|---|---|
+| leon2 | 54.6 | 0.0000 | 0.0000 | 1 | 1124444 | 0.500 | 0.500 |
+| leon3mp | 49.7 | 0.0000 | 0.0000 | 1 | 1001296 | 0.500 | 0.500 |
+| netcard | 50.1 | 0.0000 | 0.0000 | 1 | 1039476 | 0.500 | 0.500 |
+
+**Avg time across benchmarks:** 51.5 ms
+
+**Verdict:** ➖ plateau      (51.5 ms avg)
+
+**Best so far:** static delta=0.5 @ 51.46666666666667 ms
