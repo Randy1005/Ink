@@ -1,132 +1,143 @@
-This analysis focuses on the `_spur_multiq` function, which has been updated to use TBB's `concurrent_vector` and `combinable` with a cpathgen-style level+window expansion strategy, replacing a previous Taskflow + moody camel queues implementation.
+Here's an analysis of the `_spur_multiq` function, focusing on its TBB-based implementation and performance characteristics.
 
 ---
 
-### 1. Algorithm Summary — what `_spur_multiq` does now (TBB level+window)
+### 1. Algorithm summary — what _spur_multiq does now (TBB level+window)
 
-The `_spur_multiq` function generates K shortest paths using a multi-queue (cost-banded) approach. It operates in stages:
+The `_spur_multiq` function implements a parallel K-shortest path algorithm (likely a variant of Yen's algorithm or a similar cost-constrained shortest path enumeration). It uses a "level-by-level" or "cost-band" expansion strategy, augmented with a "window" mechanism, similar to cpathgen. The current implementation leverages Intel TBB (Threading Building Blocks) for parallelism and utilizes `tbb::concurrent_vector` for shared data structures and `tbb::combinable` for thread-local buffering.
 
-1.  **Initialization (Lines 1870-1897):**
-    *   Sets up TBB `task_arena` with `_num_workers`.
-    *   Creates a `std::vector` of `tbb::concurrent_vector<std::unique_ptr<PfxtNode>>` called `task_vecs`. Each inner `concurrent_vector` represents a "cost band" for path prefixes, with the last one (`task_vecs.back()`) acting as an overflow queue.
-    *   Seeds `task_vecs` by dequeuing initial path prefixes from `pfxt.task_qs` (populated by `_pfxt_cache_multiq`) and pushing them into their respective `task_vecs`.
-    *   Initializes `paths_cv` (a `tbb::concurrent_vector`) to accumulate completed paths, reserving space for `K`.
+The algorithm proceeds in these phases:
 
-2.  **Main Expansion Loop (Lines 1906-2007):**
-    *   This is a `while (!done)` loop that continues until `K` paths are found or the search space is exhausted.
-    *   **Level Processing (Lines 1909-1947):** Iterates through active cost bands (`task_vecs[id]`, excluding the overflow).
-        *   **Window Processing (Lines 1917-1945):** Within each cost band, it processes prefixes in windows. `wbeg` and `wend` define the current window.
-        *   **Parallel Spurring (Lines 1918-1935):** Uses `arena.execute` and `oneapi::tbb::parallel_for_each` to parallelize the "spurring" of paths within the current window.
-            *   Each `pfx` in the window is processed by `_spur_tbb_task_vecs` (L2834).
-            *   `_spur_tbb_task_vecs` generates child `PfxtNode`s. For each child, it calculates its cost and pushes it into the appropriate `task_vecs[vec_id]` (which could be another active band or the overflow).
-            *   The processed `pfx` (its `unique_ptr` is moved and nulled out in the `task_vecs[id]`) is then collected into a thread-local `std::vector` within a `tbb::combinable<...>` called `local_paths`.
-            *   After the `parallel_for_each` completes for a window, `local_paths.combine_each` efficiently transfers all locally accumulated paths into the global `paths_cv` in bulk, reducing contention.
-        *   Updates `path_cnt` and checks if `K` paths have been collected.
-        *   The current `task_vecs[id]` is cleared (L1947).
-    *   **Overflow Promotion (Lines 1952-2007):** If `K` paths are not yet found, `bounds` (cost thresholds for the bands) are dynamically increased until at least one node from the `task_vecs.back()` (overflow) queue can be promoted.
-        *   `std::count_if` with `std::execution::par_unseq` efficiently counts promotable nodes.
-        *   `oneapi::tbb::parallel_for_each` moves qualifying nodes from the overflow queue into their appropriate active `task_vecs`.
-        *   `std::remove_if` with `std::execution::par_unseq` and `resize` compacts the overflow queue by removing the moved (null) entries.
+1.  **Initialization (Lines 1873-1911):**
+    *   Sets up the number of worker threads (defaulting to `min(hardware_concurrency(), 4)`).
+    *   Initializes a `tbb::task_arena` to manage thread execution.
+    *   Creates a `std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>` named `task_vecs`. This vector represents multiple "cost bands" or "task queues," where `task_vecs.back()` serves as an "overflow" queue for nodes exceeding current cost bounds.
+    *   `task_vecs` is initially populated by moving `PfxtNode`s from `pfxt.task_qs` (which are pre-filled by `_pfxt_cache_multiq`).
+    *   A `tbb::concurrent_vector<std::unique_ptr<PfxtNode>> paths_cv` is created to collect the `K` shortest paths found, with `K` capacity reserved.
 
-3.  **Window Drain (Lines 2009-2090):**
-    *   After the main loop finds at least `K` paths, this phase refines the top `K` paths.
-    *   It collects all existing paths from `paths_cv` into a `std::vector<std::unique_ptr<PfxtNode>> result`, trims it to `K` (using `std::nth_element`), and determines an initial cost `threshold`.
-    *   It collects all remaining (unprocessed) `PfxtNode`s from `task_vecs` into an `orphans` vector and refines the `threshold` based on the combined `result` and `orphans`.
-    *   It seeds a `drain_cv` (another `tbb::concurrent_vector`) with `orphans` whose costs are below or equal to the `threshold`.
-    *   A final loop expands nodes from `drain_cv` (using `_spur_tbb_task_vecs`), pulling any *newly generated* children whose costs are also below or equal to the `threshold` back into `drain_cv`. This process continues until `drain_cv` stops growing, ensuring all qualifying paths reachable from the initial `K` paths are considered.
-    *   Finally, `drain_cv` is merged into `result`, and `result` is trimmed to the final `K` paths.
+2.  **Main Expansion Loop (Lines 1915-2075):** This is the core of the algorithm, iterating until `K` paths are found (`path_cnt >= K`) or no more nodes can be expanded.
+    *   **Cost Band Processing (Lines 1917-1979):** The loop iterates through active cost bands `id` (from 0 to `num_task_qs - 2`).
+        *   **Window Iteration (Lines 1932-1966):** For each cost band, it processes `PfxtNode`s in "windows."
+            *   `tbb::parallel_for_each` is used to concurrently process `PfxtNode`s within the current window (`task_vecs[id]`).
+            *   Each `PfxtNode` (`pfx`) is passed to `_spur_tbb_task_vecs`. This function performs the core "spurring" operation: it expands `pfx` to generate child `PfxtNode`s.
+            *   Generated child nodes are added to a *thread-local* buffer, `tl_task_vecs.local()[qi]`, where `qi` is the child's determined cost band.
+            *   The parent node `pfx` (now "completed") is moved to another *thread-local* buffer, `local_paths.local()`.
+            *   **Post-Window Flush:** After the `parallel_for_each` completes for a window:
+                *   `local_paths.combine_each` efficiently merges all thread-local completed parent paths into the global `paths_cv` using `grow_by`.
+                *   `tl_task_vecs.combine_each` efficiently merges all thread-local generated child nodes into their respective global `task_vecs[qi]` using `grow_by`.
+        *   `path_cnt` is updated, and `task_vecs[id]` is cleared once all nodes from its current iteration's windows are processed.
 
----
+    *   **Overflow Promotion (Lines 1983-2074):** If active bands are exhausted but `K` paths haven't been found, nodes from the `overflow` queue (`task_vecs.back()`) are promoted to active bands.
+        *   **Cost Bounds Adjustment (Lines 1989-2029):** The `bounds` array, which defines the cost thresholds for each band, is adjusted.
+            *   `EQUAL` policy: Identifies the minimum cost in the overflow (a serial `std::min_element` scan) and updates `bounds` analytically.
+            *   `GEOMETRIC` policy: Repeatedly "bumps" `bounds` until at least one node is promotable, using a parallel `std::count_if` to check.
+        *   **Node Redistribution (Lines 2036-2074):**
+            *   `tbb::parallel_for_each` iterates over the overflow queue. Each node is classified:
+                *   If its cost falls within an active band, it's moved to a *thread-local* promotion buffer (`promo_bufs.local()[idx]`).
+                *   Otherwise, it remains in overflow and is moved to `new_overflow` (`tbb::concurrent_vector`).
+            *   `promo_bufs.combine_each` merges the thread-local promoted nodes into the global `task_vecs` using `grow_by`.
+            *   The old `task_vecs.back()` (overflow) is cleared, and `new_overflow` becomes the new overflow queue.
 
-### 2. Hot Path — which operations dominate wall time
-
-Based on the structure, the following operations are likely to consume the most wall time:
-
-1.  **`_spur_tbb_task_vecs` execution (L1923, L2065):** This is the core path expansion function.
-    *   **`PfxtNode` object construction and `std::make_unique` (L2881-2883):** For every child generated, a new `PfxtNode` is allocated on the heap and wrapped in a `std::unique_ptr`. This is a frequent operation, leading to numerous small memory allocations and deallocations.
-    *   **`determine_q_idx` (L2873, L511-527):** This linear scan through `bounds` for each generated child node (up to `num_task_qs - 1` comparisons) can become a cumulative bottleneck if `num_task_qs` is large and many children are generated.
-    *   **`task_vecs[vec_id].push_back(std::move(pfx))` (L2881):** This is where new child nodes are added to their respective concurrent vectors. While `tbb::concurrent_vector` is designed for concurrent appends, it still involves synchronization and memory management (segment allocation/growth), which can become a bottleneck if many threads frequently push to the same `vec_id`.
-    *   The inner loops and conditional checks (L2840-2862) perform the actual graph traversal and cost calculations, which are fundamental work.
-
-2.  **`tbb::concurrent_vector` operations (allocation, segment management, iteration):**
-    *   **`paths_cv.reserve(K)` (L1902) and `paths_cv.grow_by(v.size())` (L1928):** While `reserve` helps, `grow_by` still involves allocating new segments and copying/moving data.
-    *   **`task_vecs[id].clear()` (L1947):** This operation, performed at the end of each cost band's processing, involves destroying all `unique_ptr`s in the segment and potentially deallocating memory.
-    *   **`task_vecs.back().resize(...)` (L2005-2006):** After `std::remove_if` for overflow promotion, resizing the overflow vector can involve significant memory operations.
-    *   **Iteration:** `tbb::concurrent_vector`s are iterated multiple times (e.g., L1919, L1974, L1986, L2002, L2062). While efficient, accessing non-contiguous memory segments can incur more cache misses than `std::vector`.
-
-3.  **`std::nth_element` and data movement in the Drain Phase (L2021, L2038, L2088):**
-    *   Sorting and partitioning large collections of `PfxtNode`s (or their costs) can be computationally intensive, even if `nth_element` has linear average time complexity.
-    *   Multiple loops to move `std::unique_ptr<PfxtNode>` between `paths_cv`, `result`, `orphans`, and `drain_cv` (e.g., L2017, L2029, L2046, L2074, L2087) contribute to overhead due to pointer manipulation and potential heap operations if the underlying `PfxtNode` objects are being implicitly freed and reallocated in new vectors, though `std::move` mitigates this for `unique_ptr`.
-
-4.  **`std::count_if` and `std::remove_if` with `std::execution::par_unseq` (L1972, L2000):** These operations are parallelized, which is good. However, they still involve iterating over potentially large `tbb::concurrent_vector`s and performing predicate checks, contributing to overall workload.
+3.  **Window Drain (Lines 2077 onwards):** (Partial code provided) After the main loop, `paths_cv` (containing more than `K` paths if `K` was reached) is collected, sorted by cost, and trimmed to exactly `K` paths.
 
 ---
 
-### 3. Parallelism Quality — how well work is distributed across threads
+### 2. Hot path — which operations dominate wall time (allocation, sync, data movement)
 
-The current implementation shows good effort in leveraging parallelism:
+The dominant operations contributing to wall time are expected to be:
 
-*   **Main Workhorse Parallelism:** `oneapi::tbb::parallel_for_each` is used for the primary task of spurring paths (L1919) and for promoting nodes (L1986). This is crucial for distributing the heaviest computational load.
-*   **Contention Reduction for Result Collection:** The use of `tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths` is an excellent pattern. Threads accumulate results locally without contention, and then a single, efficient `combine_each` step merges them into `paths_cv`. This effectively mitigates a common bottleneck in parallel aggregations.
-*   **Parallel Algorithms for Utility Tasks:** `std::execution::par_unseq` is used with `std::count_if` (L1972) and `std::remove_if` (L2000), allowing these operations to run in parallel and potentially vectorized, which is a good optimization.
-*   **TBB `concurrent_vector`:** Provides thread-safe append, allowing multiple threads to add new child nodes to `task_vecs` simultaneously without explicit locks.
+1.  **`_spur_tbb_task_vecs` Execution (Line 1939 in `_spur_multiq`, and `ink.cpp:2904` for `_spur_tbb_task_vecs`):**
+    *   **Core Computation:** This is where paths are expanded. It involves graph traversal (loops over `fanout`, `successors`), cost calculations (`detour_cost`, `c`, `dc`), and conditional checks.
+    *   **Object Allocation:** For every child path generated, a new `PfxtNode` object is allocated on the heap (implicitly via `std::make_unique`). The cumulative cost of these allocations (and later deallocations when `unique_ptr`s go out of scope) can be substantial for large `K`.
+    *   **Data Movement/Memory Access:** Reading graph data (`_vptrs`, `edge->fanout`, `edge->weights`, `pfxt.sfxt.dists`, `pfxt.sfxt.links`) involves pointer dereferences and potentially scattered memory accesses, leading to cache misses.
+    *   **`_encode_edge` calls:** This function (called twice per potential child) might perform non-trivial string or hashing operations.
 
-**Areas for potential improvement/consideration:**
+2.  **Bulk Data Movement via `grow_by` and `std::move` (Lines 1944-1948, 1958-1962, 2060-2065, 2071-2073):**
+    *   **Allocation:** `tbb::concurrent_vector::grow_by` allocates segments of memory. While amortized constant time, frequent large `grow_by` calls can incur significant overhead for memory allocation, especially under high memory pressure.
+    *   **`std::move`:** Moving `std::unique_ptr`s is efficient, but the sheer volume of `PfxtNode`s being moved between buffers (thread-local to global `paths_cv`, thread-local to global `task_vecs`, `new_overflow` to `task_vecs.back()`) represents a substantial amount of data manipulation.
+    *   **Synchronization:** Although `grow_by` is concurrent, the `combine_each` steps are serial sections. Within `combine_each`, multiple `grow_by` calls to the same `tbb::concurrent_vector` (e.g., `task_vecs[qi]`) will execute sequentially, potentially creating a bottleneck if many threads produced data for the same target vector.
 
-*   **Granularity of Parallelism:** The `parallel_for_each` operates on "windows" of `PfxtNode`s. If these windows become very small (e.g., at the end of a cost band's processing), the overhead of task scheduling might outweigh the benefits of parallelism.
-*   **Load Imbalance in `task_vecs`:** If child nodes are not uniformly distributed across the `num_task_qs` cost bands, some `task_vecs[idx]` might become hot spots for `push_back` operations while others remain less utilized. This could lead to contention on specific `concurrent_vector` instances.
-*   **Sequential `for` loop over `task_vecs` (L1909):** The outer loop iterating `for (size_t id = 0; id < num_task_qs - 1; id++)` processes cost bands sequentially. While work *within* each band is parallel, the overall progression through bands is serial. This is inherent to the level-by-level algorithm, but means if one band is very large, it must be fully processed before the next (cheaper) band can begin, potentially limiting overall throughput.
-
----
-
-### 4. Comparison with `cpathgen` (`_spur_mlq`) — remaining structural differences
-
-The new `_spur_multiq` is a significant step towards modern parallel practices compared to `_spur_mlq` (which itself was already TBB-based).
-
-**Key improvements in `_spur_multiq` over `_spur_mlq`:**
-
-1.  **Result Aggregation (Major Improvement):**
-    *   **`_spur_multiq`:** Uses `tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths` (L1915) to buffer completed paths locally per thread, then bulk-inserts them into `paths_cv`. This drastically reduces contention on the global result collection.
-    *   **`_spur_mlq` (L1743):** `_tbb_cv_paths.push_back(std::move(pfx))` directly. This means every completed path involves a concurrent `push_back` operation on a single shared `tbb::concurrent_vector`, which would be a severe contention point under high concurrency.
-2.  **Window Management:**
-    *   **`_spur_multiq`:** Simplifies window management by directly using `task_vecs[id].size()` for `wend` updates within the `while (wbeg < wend)` loop.
-    *   **`_spur_mlq` (L1704, L1721-1725, L1846-1854):** Manages explicit `std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> windows` for `wbeg` and `wend`, and updates them atomically. The new approach is cleaner and likely more efficient by avoiding atomic operations within the main loop.
-3.  **Dynamic Bounds Policy:**
-    *   **`_spur_multiq` (L1959-1970):** Supports configurable `PartitionPolicy::EQUAL` or `PartitionPolicy::GEOMETRIC` for updating cost `bounds`, making the cost band expansion more flexible.
-    *   **`_spur_mlq` (L1781-1784):** Uses a fixed `delta` for bounds updates.
-4.  **Window Drain Phase:**
-    *   **`_spur_multiq` (L2009-2090):** Includes a sophisticated "drain" phase to ensure that exactly the `K` shortest paths are collected by actively spurring paths whose costs are below a dynamically determined threshold. This improves result accuracy but adds significant computational complexity.
-    *   **`_spur_mlq`:** Simply stops when `path_cnt >= K`, potentially having more than `K` paths or not necessarily the `K` *shortest* if tie-breaking is not strict.
-
-**Remaining Structural Similarities/Bottlenecks:**
-
-*   **`task_vecs` structure:** Both use `std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>` to hold the active path prefixes. This structure for intermediate nodes still means that contention on `push_back` for individual `concurrent_vector`s (if many nodes fall into the same cost band) remains a potential issue.
-*   **`_spur_tbb_task_vecs` function:** The core work for expanding a path prefix is identical (L2834 vs L1736-1739 call). Thus, bottlenecks within this function, especially memory allocation and `determine_q_idx`, are common to both.
+3.  **Overflow Processing (`std::min_element`, `std::count_if`, `parallel_for_each` for promotion):**
+    *   **Serial `std::min_element` (Lines 1991-1998):** If `PartitionPolicy::EQUAL` is used and the `task_vecs.back()` (overflow) queue becomes very large, this O(N) serial scan to find the minimum cost node will be a significant bottleneck.
+    *   **`std::count_if` (Lines 2021-2027):** For `GEOMETRIC` policy, this is parallelized (`par_unseq`). However, it might execute multiple times if the bounds need to be bumped iteratively, increasing its total cost.
+    *   **`determine_q_idx` (Lines 2047-2049):** This function performs a linear scan through `bounds`. While `bounds.size()` is typically small, it's called for *every node* in the overflow queue during promotion, adding up to a measurable cost.
 
 ---
 
-### 5. Suspected Bottlenecks — ranked by likely impact, with line references
+### 3. Parallelism quality — how well work is distributed across threads
 
-1.  **Memory Allocation/Deallocation for `PfxtNode`s:**
-    *   **Impact:** High. The creation of `std::unique_ptr<PfxtNode>` (L2881-2883) for every generated child node in `_spur_tbb_task_vecs` leads to numerous small heap allocations (`new PfxtNode`). This can cause significant overhead due to allocator lock contention, cache misses, and memory fragmentation. Even with `std::move`, the underlying `PfxtNode` objects must be managed.
-    *   **Line refs:** L2881-2883 (in `_spur_tbb_task_vecs`), L1895-1896 (initial seed), L1925 (local accumulation), L1928 (bulk insert to `paths_cv`), L2017, L2029, L2046, L2074, L2087 (data movement in drain phase).
+The `_spur_multiq` function demonstrates a good understanding of TBB patterns for parallelizing this algorithm:
 
-2.  **Contention on `tbb::concurrent_vector::push_back` for intermediate nodes:**
-    *   **Impact:** Medium-High. While `tbb::concurrent_vector` is concurrent, `push_back` still involves some synchronization and memory management. If many child nodes from different parallel tasks are generated with similar costs, they will all attempt to `push_back` to the same `task_vecs[vec_id]` (L2881), potentially causing contention and serialization. The `combinable` pattern is not applied to `task_vecs` themselves.
-    *   **Line refs:** L2881 (`task_vecs[vec_id].push_back(...)` within `_spur_tbb_task_vecs`).
+*   **Effective Work Distribution:** `oneapi::tbb::parallel_for_each` is used for the core path expansion (Line 1934) and for promoting overflow nodes (Line 2041). This construct dynamically schedules tasks, adapting well to variable work per `PfxtNode` and handling load balancing effectively.
+*   **Reduced Contention via `tbb::combinable`:**
+    *   `local_paths` (Line 1923) for completed parent paths.
+    *   `tl_task_vecs` (Line 1928) for generated child nodes.
+    *   `promo_bufs` (Line 2036) for promoted overflow nodes.
+    This pattern is crucial. Instead of threads directly contending on global `tbb::concurrent_vector`s (which would involve per-element atomic operations), they write to their own thread-local `std::vector`s. The `combine_each` method then performs a bulk merge of these local buffers into the global `tbb::concurrent_vector`s. This significantly reduces fine-grained synchronization overhead during the most intense phases of computation.
+*   **Memory Reuse:** `tbb::concurrent_vector::clear()` (e.g., Line 1963, 1978, 2070) does *not* deallocate memory segments, only resets the logical size. This is a common performance optimization in TBB to avoid repeated memory allocations/deallocations, especially for temporary buffers like `tl_task_vecs.local()[qi]`. This makes sense given the "steady state" of memory usage after the initial windows.
+*   **Potential Bottlenecks in Serial Sections:** The `combine_each` calls themselves (Lines 1943, 1957, 2058) are serial reduction steps. While they perform bulk operations, the execution is sequential. If the amount of data generated per thread per window is very large, these combining steps could become a bottleneck. The serial `std::min_element` in the `EQUAL` overflow policy is another significant serial point that limits overall scalability.
 
-3.  **Sequential `determine_q_idx` lookup in `_spur_tbb_task_vecs`:**
-    *   **Impact:** Medium. For every child node generated, `determine_q_idx` (L511-527) performs a linear scan (`while (i < bounds.size())`) of the `bounds` array. If `num_task_qs` (the number of cost bands) is large, this sequential search, executed millions of times, can become a significant cumulative overhead. This could be optimized to a binary search (e.g., `std::upper_bound`).
-    *   **Line refs:** L2873 (`determine vec id` comment), L511-527 (`determine_q_idx` function).
+Overall, the parallelism quality is high for the core expansion and distribution steps. The bottlenecks are largely concentrated in serial reduction phases or specific overflow handling strategies.
 
-4.  **TBB `concurrent_vector` internal overheads (clearing, resizing, non-contiguous access):**
-    *   **Impact:** Medium. `task_vecs[id].clear()` (L1947) and `task_vecs.back().resize(...)` (L2005-2006) involve internal memory operations which can be costly. Iterating over `tbb::concurrent_vector` segments, while efficient for concurrent adds, might have slightly less cache locality compared to a contiguous `std::vector`, potentially leading to more cache misses in the `parallel_for_each` loops.
-    *   **Line refs:** L1947 (`clear`), L2005-2006 (`resize`), L1919, L1974, L1986, L2002, L2062 (iteration in `parallel_for_each`, `count_if`, `remove_if`).
+---
 
-5.  **Window Drain Phase Complexity and Sorting:**
-    *   **Impact:** Medium. The window drain phase (L2009-2090) involves multiple steps of collecting, sorting (`std::nth_element` on L2021, L2038, L2088), filtering, and potentially re-spurring nodes. While crucial for result quality, the overhead of these complex operations, especially multiple `nth_element` calls on potentially large collections, can be substantial, particularly if `K` is large or many "orphan" paths need to be considered.
-    *   **Line refs:** L2009-2090 (entire drain phase), L2021, L2038, L2088 (`std::nth_element`).
+### 4. Comparison with cpathgen (_spur_mlq) — remaining structural differences
 
-6.  **`std::pow` in Geometric Bounds Update:**
-    *   **Impact:** Low-Medium. If `PartitionPolicy::GEOMETRIC` is used, the `bounds` update (L1966-1969) involves calls to `std::pow` in a loop. `std::pow` can be more expensive than basic arithmetic operations. While this occurs only during overflow promotion and not in the main spurring loop, repeated calls in a tight loop could add minor overhead.
-    *   **Line refs:** L1966-1969.
+The `_spur_multiq` implementation is an improved version of the `_spur_mlq` (cpathgen reference) in key areas, primarily concerning contention reduction.
+
+**Key Improvements in `_spur_multiq` over `_spur_mlq`:**
+
+*   **Child Node Generation (Major Improvement):**
+    *   **`_spur_multiq` (Lines 1928, 1939, 1957-1965):** Uses `tbb::combinable<std::vector<tbb::concurrent_vector<...>>> tl_task_vecs`. Each thread writes generated children to its *own* local `std::vector` of `tbb::concurrent_vector`s. After the `parallel_for_each` window, `combine_each` merges these local buffers into the global `task_vecs` using `grow_by`. This avoids *any* contention on `task_vecs` during the child generation phase.
+    *   **`_spur_mlq` (Lines 1747, 1748):** The `_spur_tbb_task_vecs` function in `_spur_mlq` directly pushes generated children to the *global* `tbb_task_vecs[idx]`. This would lead to significant contention if multiple threads tried to push to the same `tbb_task_vecs[idx]` concurrently.
+    *   **Impact:** `_spur_multiq`'s approach vastly reduces synchronization overhead and contention during the most active phase of node generation, leading to better scalability.
+
+*   **Overflow Node Promotion (Significant Improvement):**
+    *   **`_spur_multiq` (Lines 2036-2067):** Uses `tbb::combinable<std::vector<std::vector<...>>> promo_bufs` for nodes to be promoted. `parallel_for_each` populates these thread-local buffers. `combine_each` then bulk-merges them into the global `task_vecs`. Unpromoted nodes are collected into a `new_overflow` `tbb::concurrent_vector`, which then replaces the old overflow.
+    *   **`_spur_mlq` (Lines 1833-1851):** Promoted nodes are directly `push_back`ed to global `tbb_task_vecs[idx]`, again introducing contention. For unpromoted nodes, it uses `std::remove_if(std::execution::par_unseq)` followed by `resize` on the `tbb_task_vecs.back()`. `remove_if` on `tbb::concurrent_vector` can be complex and `resize` might involve significant internal reorganizations or memory moves, especially if many nodes are removed.
+    *   **Impact:** `_spur_multiq` avoids contention during promotion and uses a more efficient strategy for managing the overflow queue by rebuilding it, rather than in-place modification.
+
+*   **Overflow Cost Bounds Update Strategy:**
+    *   **`_spur_multiq` (Lines 1989-2029):** Offers two policies: `EQUAL` with a serial `min_element` scan, and `GEOMETRIC` with a parallel `count_if`.
+    *   **`_spur_mlq` (Lines 1795-1804):** Only shows an `EQUAL`-like policy using a serial `min_element` scan.
+    *   **Impact:** `_spur_multiq`'s `GEOMETRIC` policy has a more parallel approach for checking promotability, but the `EQUAL` policy in both retains a serial bottleneck.
+
+**Remaining Similarities/Structural Bottlenecks:**
+
+*   Both use the same `std::min(hardware_concurrency(), 4)` worker limit, suggesting a shared understanding of memory bandwidth limitations.
+*   Both retain serial `combine_each` steps for merging thread-local buffers into global `tbb::concurrent_vector`s. While the individual `grow_by` operations are concurrent, the `combine_each` structure means they are called sequentially for different threads' buffers.
+*   Both still allocate `PfxtNode` objects on the heap with `std::unique_ptr`, implying similar allocation/deallocation overhead.
+
+In essence, `_spur_multiq` significantly refines the parallel execution by employing more sophisticated thread-local buffering and bulk operations, largely eliminating contention that would have plagued the `_spur_mlq` variant during critical parallel phases.
+
+---
+
+### 5. Suspected bottlenecks — ranked by likely impact, with line references
+
+1.  **`_spur_tbb_task_vecs` Execution Costs (Line 1939, and `ink.cpp:2904` onwards):**
+    *   **Likely Impact:** Highest. This function is the inner loop of the path expansion process, executed for every `PfxtNode` in every window.
+    *   **Reasoning:**
+        *   **Heavy computation per node:** Graph traversal, multiple cost calculations, and two `_encode_edge` calls per potential child.
+        *   **Memory Access Patterns:** Dereferencing `_vptrs`, `fanout`, `weights`, `dists`, `links` can lead to many cache misses, making the process memory-bandwidth bound (as suggested by the 4T worker limit comment).
+        *   **Heap Allocations:** Each new `PfxtNode` creation within this function involves a heap allocation (via `std::make_unique`), which, when performed millions/billions of times, can be a major source of overhead even with optimized allocators.
+    *   **Mitigation:** Profile `_spur_tbb_task_vecs` deeply. Optimize `_encode_edge` if it's expensive. Consider custom allocators (e.g., memory pools) for `PfxtNode`s to reduce allocator overhead and improve locality.
+
+2.  **Serial `std::min_element` in `EQUAL` Overflow Policy (Lines 1991-1998):**
+    *   **Likely Impact:** Very High, if `policy == PartitionPolicy::EQUAL` and the overflow queue (`task_vecs.back()`) contains a large number of nodes.
+    *   **Reasoning:** This is a purely serial O(N) scan of the entire overflow queue. If the queue grows to millions of elements, this single operation becomes a significant Amdahl's Law bottleneck, crippling scalability regardless of the number of available cores.
+    *   **Mitigation:** Prioritize using `PartitionPolicy::GEOMETRIC` as its `std::count_if` is parallelized. If `EQUAL` is strictly required, parallelize `std::min_element` using `std::min_element(std::execution::par_unseq, ...)` or TBB's `parallel_reduce`. Alternatively, maintain the overflow queue as a min-heap if its structure allows for efficient updates.
+
+3.  **`combine_each` for Child Node Flushing (Lines 1957-1965):**
+    *   **Likely Impact:** Medium to High, especially if many children are generated and `num_task_qs` is large.
+    *   **Reasoning:** This step, although performing bulk operations, is a serial reduction. All `grow_by` calls to the global `task_vecs[qi]` are executed sequentially within this lambda. Each `grow_by` involves atomic updates and potentially new memory segment acquisition. The total time will sum up the costs for all `num_task_qs` vectors, across all threads' contributions.
+    *   **Mitigation:** This is a fundamental trade-off of the `tbb::combinable` pattern. The benefit of reduced contention during generation often outweighs the serial combine cost. Keeping `num_task_qs` reasonable helps. If profiling indicates this is a major bottleneck, more complex concurrent merging strategies might be explored, but these typically come with their own synchronization overheads.
+
+4.  **`std::unique_ptr` Heap Allocation/Deallocation Overhead (Implicit in `_spur_tbb_task_vecs` and `Pfxt::push`):**
+    *   **Likely Impact:** Medium.
+    *   **Reasoning:** The continuous allocation and deallocation of `PfxtNode` objects via `std::unique_ptr` (which uses `new` and `delete`) can accumulate overhead. While modern allocators are highly optimized, a very high rate of allocations (e.g., billions over the program's lifetime) can lead to contention in the allocator, cache fragmentation, and overall performance degradation.
+    *   **Mitigation:** Consider using a custom memory allocator (e.g., a simple memory pool, `tbb::cache_aligned_allocator` if `PfxtNode` size is fixed) specifically for `PfxtNode` objects. This can significantly reduce allocation overhead and improve memory locality.
+
+5.  **`determine_q_idx` Linear Scan during Promotion (Lines 2047-2049, `ink.hpp:511`):**
+    *   **Likely Impact:** Low to Medium.
+    *   **Reasoning:** `determine_q_idx` performs a linear search through the `bounds` array. Since `num_task_qs` (and thus `bounds.size()`) is expected to be relatively small (e.g., 10-100), this operation is fast per-call. However, it is called for *every node* in the overflow queue during promotion within a `parallel_for_each`. For very large overflow queues, the cumulative cost can become measurable.
+    *   **Mitigation:** Keep `num_task_qs` small. If `num_task_qs` must be large, replace the linear scan with a binary search (`std::upper_bound`) since `bounds` is sorted.

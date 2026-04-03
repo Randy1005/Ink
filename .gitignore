@@ -45,7 +45,7 @@ vgcore*
 
 # large generated files
 *.edges
-golden/
+# golden/ is checked in — benchmarks (.edges) are scp'd separately
 *.csv
 .DS_Store
 
