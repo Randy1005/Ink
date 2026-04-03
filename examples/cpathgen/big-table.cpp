@@ -1,9 +1,36 @@
 #include <ink/ink.hpp>
+#include <cstdlib>
+
+// Read a float from an environment variable, returning default_val if not set.
+static float env_float(const char* name, float default_val) {
+  const char* s = std::getenv(name);
+  return s ? std::stof(s) : default_val;
+}
 
 int main(int argc, char* argv[]) {
   if (argc != 4 && argc != 5) {
     std::cerr << "usage: ./a.out [k] [input] [golden] [num_threads=auto]\n";
+    std::cerr << "env vars (all optional):\n"
+              << "  CPATHGEN_DELTA       initial delta       (default 2.5)\n"
+              << "  CPATHGEN_TARGET_PPS  target paths/step   (default 0 = static)\n"
+              << "  CPATHGEN_SCALE_UP    delta scale when sparse (default 1.5)\n"
+              << "  CPATHGEN_SCALE_DOWN  delta scale when dense  (default 0.8)\n"
+              << "  CPATHGEN_DELTA_MIN   delta lower clamp   (default 0.1)\n"
+              << "  CPATHGEN_DELTA_MAX   delta upper clamp   (default 100.0)\n";
     return EXIT_FAILURE;
+  }
+
+  // Build DeltaPolicy from env vars
+  float delta_init      = env_float("CPATHGEN_DELTA",      2.5f);
+  float target_pps      = env_float("CPATHGEN_TARGET_PPS", 0.0f);
+  float scale_up        = env_float("CPATHGEN_SCALE_UP",   1.5f);
+  float scale_down      = env_float("CPATHGEN_SCALE_DOWN", 0.8f);
+  float delta_min       = env_float("CPATHGEN_DELTA_MIN",  0.1f);
+  float delta_max       = env_float("CPATHGEN_DELTA_MAX",  100.0f);
+
+  std::optional<ink::DeltaPolicy> delta_policy;
+  if (target_pps > 0.0f) {
+    delta_policy = ink::DeltaPolicy{target_pps, scale_up, scale_down, delta_min, delta_max};
   }
 
   ink::Ink ot, pathgen, cpathgen;
@@ -115,10 +142,11 @@ int main(int argc, char* argv[]) {
     : std::nullopt;
   for (int i = 0; i < runs; i++) {
     cpathgen.report_paths_mlq(
-      2.5f,             // delta
+      delta_init,       // delta (initial; adaptive if policy set)
       k,                // K
       10,               // num_queues
-      cpathgen_workers  // num_workers
+      cpathgen_workers, // num_workers
+      delta_policy      // optional adaptive policy
     );
     total_pfxt_time += cpathgen.pfxt_time;
     if (i < runs-1) {
@@ -143,6 +171,23 @@ int main(int argc, char* argv[]) {
   auto cpathgen_avg_pfxt_time = total_pfxt_time/runs/1ms;
   std::cout << "cpathgen done.\n";
 
+
+  // Print per-step efficiency stats for the last cpathgen run (parsed by autoloop.py)
+  {
+    size_t steps = cpathgen.num_steps;
+    size_t total_paths = cpathgen.accum_path_cnt_per_step.empty()
+      ? 0 : cpathgen.accum_path_cnt_per_step.back();
+    float avg_pps = steps > 0 ? (float)total_paths / steps : 0.0f;
+    float min_d = delta_init, max_d = delta_init;
+    if (!cpathgen.delta_per_step.empty()) {
+      min_d = *std::min_element(cpathgen.delta_per_step.begin(), cpathgen.delta_per_step.end());
+      max_d = *std::max_element(cpathgen.delta_per_step.begin(), cpathgen.delta_per_step.end());
+    }
+    std::cout << "cpathgen_num_steps=" << steps << "\n"
+              << "cpathgen_avg_pps=" << std::fixed << std::setprecision(1) << avg_pps << "\n"
+              << "cpathgen_delta_min=" << min_d << "\n"
+              << "cpathgen_delta_max=" << max_d << "\n";
+  }
 
   // dump ot, pathgen, and cpathgen stats to csv
   // header:

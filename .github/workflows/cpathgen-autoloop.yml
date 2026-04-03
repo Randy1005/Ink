@@ -1,0 +1,42 @@
+name: cpathgen delta autoloop
+
+on:
+  workflow_dispatch:       # manual trigger from GitHub UI
+  schedule:
+    - cron: '0 2 * * *'   # daily at 02:00 UTC (re-runs if queue refilled)
+
+jobs:
+  autoloop:
+    runs-on: [self-hosted, linux, ink]
+    timeout-minutes: 360   # 6-hour ceiling; full 33-config queue takes ~60 min
+
+    steps:
+      - name: Pull latest source
+        run: |
+          cd /home/cchang289/Research/Ink
+          git fetch origin
+          git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
+
+      - name: Incremental build
+        run: cmake --build /home/cchang289/Research/Ink/build --parallel
+
+      - name: Run autoloop
+        run: |
+          cd /home/cchang289/Research/Ink
+          python3 scripts/autoloop.py
+
+      - name: Show summary
+        if: always()
+        run: |
+          echo "=== progress_log.md (last 60 lines) ==="
+          tail -60 /home/cchang289/Research/Ink/progress_log.md || true
+          echo ""
+          echo "=== best config ==="
+          python3 -c "
+          import json
+          cfg = json.load(open('/home/cchang289/Research/Ink/scripts/autoloop_config.json'))
+          b = cfg.get('best', {})
+          print(f\"best: {b.get('label','?')} @ {b.get('avg_ms','?')} ms\")
+          print(f\"completed rounds: {len(cfg.get('completed', []))}\")
+          print(f\"queue remaining:  {len(cfg.get('queue', []))}\")
+          " || true

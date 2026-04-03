@@ -569,7 +569,8 @@ std::vector<Path> Ink::report_paths_mlq(
   float delta,
   size_t K,
   size_t num_vecs,
-	std::optional<size_t> num_workers) {
+	std::optional<size_t> num_workers,
+	std::optional<DeltaPolicy> policy) {
 
 	if (K == 0) {
   	return {};
@@ -667,11 +668,12 @@ std::vector<Path> Ink::report_paths_mlq(
 	src_pfxs.clear();
 
 	_spur_mlq(
-		K, 
-		pfxt, 
-		delta, 
+		K,
+		pfxt,
+		delta,
 		tbb_task_vecs,
-		num_workers);
+		num_workers,
+		policy);
 
 	return {};
 }
@@ -1697,23 +1699,23 @@ void Ink::_spur_mlq(
 	Pfxt& pfxt,
 	float delta,
 	std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
-	std::optional<size_t> num_workers) {
+	std::optional<size_t> num_workers,
+	std::optional<DeltaPolicy> policy) {
 	size_t path_cnt{0};
 	bool done{false};
 	size_t num_vecs{tbb_task_vecs.size()};
-	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>> 
+	std::vector<std::pair<std::atomic_size_t, std::atomic_size_t>>
 		windows(num_vecs-1);
 	size_t nw = num_workers.has_value()
 		? *num_workers
 		: std::min((size_t)std::thread::hardware_concurrency(), (size_t)4);
-	// 4T is the sweet spot on Apple M-series (memory-bandwidth-bound);
-	// same cap as _spur_multiq — see debug_session/experiment_log.md thread-scaling study.
 	tbb::task_arena arena(nw);
 
-	// reset steps
+	// reset per-run state
 	num_steps = 0;
 	accum_path_cnt_per_step.clear();
 	accum_path_cnt_per_step.emplace_back(0);
+	delta_per_step.clear();
 
 	Timer timer;
 	timer.start();
@@ -1856,6 +1858,17 @@ void Ink::_spur_mlq(
 			windows[idx].second.store(tbb_task_vecs[idx].size());
 		}
 	 	}
+		// Adaptive delta: observe paths generated this step, adjust delta for next bounds bump.
+		if (policy && policy->target_pps > 0.0f) {
+			float paths_this_step = (float)(path_cnt - accum_path_cnt_per_step.back());
+			if (paths_this_step < policy->target_pps) {
+				delta = std::min(delta * policy->scale_up,   policy->delta_max);
+			} else if (paths_this_step > policy->target_pps) {
+				delta = std::max(delta * policy->scale_down, policy->delta_min);
+			}
+			delta_per_step.push_back(delta);
+		}
+
 		num_steps++;
 		accum_path_cnt_per_step.emplace_back(path_cnt);
 	}

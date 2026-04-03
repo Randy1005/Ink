@@ -46,6 +46,16 @@ struct PfxtNode;
 struct Pfxt;
 class Ink;
 struct Point;
+
+// Per-step adaptive delta policy for _spur_mlq.
+// When target_pps == 0 the policy is disabled (static delta).
+struct DeltaPolicy {
+  float target_pps{0.0f};   // target paths per step
+  float scale_up{1.5f};     // multiply delta when paths_this_step < target (sparse → grow window)
+  float scale_down{0.8f};   // multiply delta when paths_this_step > target (dense → shrink window)
+  float delta_min{0.1f};
+  float delta_max{100.0f};
+};
 struct Path;
 class PathHeap;
 
@@ -441,7 +451,8 @@ public:
     float delta,
     size_t K,
     size_t num_vecs,
-		std::optional<size_t> num_workers = std::nullopt);
+		std::optional<size_t> num_workers = std::nullopt,
+		std::optional<DeltaPolicy> policy = std::nullopt);
   
 
   void dump(std::ostream& os) const;
@@ -648,6 +659,7 @@ public:
 
 	size_t num_steps{0};
 	std::vector<size_t> accum_path_cnt_per_step;
+	std::vector<float>  delta_per_step;   // delta value used for each bounds-bump step
 private:
 	/**
 	@brief Index Generator
@@ -744,7 +756,8 @@ private:
 		Pfxt& pfxt,
 		float delta,
 		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& tbb_task_vecs,
-		std::optional<size_t> num_workers = std::nullopt);
+		std::optional<size_t> num_workers = std::nullopt,
+		std::optional<DeltaPolicy> policy = std::nullopt);
 
 	void _spur_tbb_task_vecs(
 		Pfxt& pfxt,
