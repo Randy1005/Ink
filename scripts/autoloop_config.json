@@ -23,17 +23,6 @@
   },
   "queue": [
     {
-      "id": 6,
-      "phase": 1,
-      "delta": 2.5,
-      "target_pps": 0.0,
-      "scale_up": 1.0,
-      "scale_down": 1.0,
-      "delta_min": 0.1,
-      "delta_max": 100.0,
-      "label": "static delta=2.5"
-    },
-    {
       "id": 7,
       "phase": 1,
       "delta": 3.5,
@@ -697,6 +686,53 @@
         }
       },
       "avg_ms": 50.20000000000001,
+      "all_correct": true
+    },
+    {
+      "config": {
+        "id": 6,
+        "phase": 1,
+        "delta": 2.5,
+        "target_pps": 0.0,
+        "scale_up": 1.0,
+        "scale_down": 1.0,
+        "delta_min": 0.1,
+        "delta_max": 100.0,
+        "label": "static delta=2.5"
+      },
+      "results": {
+        "leon2": {
+          "ok": true,
+          "num_steps": 1,
+          "avg_pps": 1635380.0,
+          "delta_min": 2.5,
+          "delta_max": 2.5,
+          "time_ms": 69.2,
+          "avg_err": 0.0,
+          "max_err": 0.0
+        },
+        "leon3mp": {
+          "ok": true,
+          "num_steps": 1,
+          "avg_pps": 1260400.0,
+          "delta_min": 2.5,
+          "delta_max": 2.5,
+          "time_ms": 54.0,
+          "avg_err": 0.0,
+          "max_err": 0.0
+        },
+        "netcard": {
+          "ok": true,
+          "num_steps": 1,
+          "avg_pps": 1506344.0,
+          "delta_min": 2.5,
+          "delta_max": 2.5,
+          "time_ms": 63.6,
+          "avg_err": 0.0,
+          "max_err": 0.0
+        }
+      },
+      "avg_ms": 62.26666666666667,
       "all_correct": true
     }
   ]
