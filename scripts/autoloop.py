@@ -44,11 +44,22 @@ def generate_queue():
     configs = []
     cid = 1
 
-    # Phase 1: static delta sweep (target_pps=0 disables adaptation)
+    # Phase 0: auto P-controller — zero knobs, this is the target default
+    for delta_init in [0.1, 0.5, 1.0]:
+        configs.append({
+            "id": cid, "phase": 0,
+            "delta": delta_init, "target_pps": 0.0,
+            "scale_up": 1.5, "scale_down": 0.8,   # unused in auto mode
+            "delta_min": 0.1, "delta_max": 100.0,
+            "label": f"auto P-ctrl d0={delta_init}",
+        })
+        cid += 1
+
+    # Phase 1: static delta sweep (target_pps=-1 disables adaptation entirely)
     for delta in [0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 5.0, 10.0]:
         configs.append({
             "id": cid, "phase": 1,
-            "delta": delta, "target_pps": 0.0,
+            "delta": delta, "target_pps": -1.0,   # -1 = truly static
             "scale_up": 1.0, "scale_down": 1.0,
             "delta_min": 0.1, "delta_max": 100.0,
             "label": f"static delta={delta}",

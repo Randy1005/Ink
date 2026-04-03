@@ -1858,15 +1858,32 @@ void Ink::_spur_mlq(
 			windows[idx].second.store(tbb_task_vecs[idx].size());
 		}
 	 	}
-		// Adaptive delta: observe paths generated this step, adjust delta for next bounds bump.
-		if (policy && policy->target_pps > 0.0f) {
+		// Adaptive delta: adjust delta for the next bounds bump based on this step's work.
+		if (policy && path_cnt < K) {
 			float paths_this_step = (float)(path_cnt - accum_path_cnt_per_step.back());
-			if (paths_this_step < policy->target_pps) {
-				delta = std::min(delta * policy->scale_up,   policy->delta_max);
-			} else if (paths_this_step > policy->target_pps) {
-				delta = std::max(delta * policy->scale_down, policy->delta_min);
+			if (paths_this_step > 0.0f) {
+				float new_delta;
+				if (policy->target_pps == 0.0f) {
+					// AUTO mode: P-controller — scale delta so that next step finishes
+					// the remaining work in one shot.
+					// ratio = remaining / paths_this_step; clamped for stability.
+					float remaining = (float)(K - path_cnt);
+					float ratio = remaining / paths_this_step;
+					ratio = std::max(1.0f / policy->max_shrink,
+					                 std::min(ratio, policy->max_grow));
+					new_delta = delta * ratio;
+				} else {
+					// EXPLICIT mode: fixed target with manual scale factors.
+					if (paths_this_step < policy->target_pps)
+						new_delta = delta * policy->scale_up;
+					else if (paths_this_step > policy->target_pps)
+						new_delta = delta * policy->scale_down;
+					else
+						new_delta = delta;
+				}
+				delta = std::max(policy->delta_min, std::min(new_delta, policy->delta_max));
+				delta_per_step.push_back(delta);
 			}
-			delta_per_step.push_back(delta);
 		}
 
 		num_steps++;

@@ -48,13 +48,25 @@ class Ink;
 struct Point;
 
 // Per-step adaptive delta policy for _spur_mlq.
-// When target_pps == 0 the policy is disabled (static delta).
+//
+// Two modes:
+//   target_pps == 0  (default) — AUTO mode: P-controller that scales delta
+//                                by (remaining_paths / paths_this_step), clamped
+//                                to [1/max_shrink, max_grow].  Zero user knobs.
+//   target_pps >  0            — EXPLICIT mode: fixed target with manual
+//                                scale_up / scale_down factors (used by autoloop
+//                                systematic search).
+//
+// Pass nullopt to _spur_mlq / report_paths_mlq for a fully static delta.
 struct DeltaPolicy {
-  float target_pps{0.0f};   // target paths per step
-  float scale_up{1.5f};     // multiply delta when paths_this_step < target (sparse → grow window)
-  float scale_down{0.8f};   // multiply delta when paths_this_step > target (dense → shrink window)
+  float target_pps{0.0f};   // 0 = auto P-controller; >0 = explicit target
+  float scale_up{1.5f};     // EXPLICIT mode: multiply delta when sparse
+  float scale_down{0.8f};   // EXPLICIT mode: multiply delta when dense
   float delta_min{0.1f};
   float delta_max{100.0f};
+  // AUTO mode stability clamps: delta grows at most max_grow×, shrinks at most 1/max_shrink×
+  float max_grow{4.0f};
+  float max_shrink{2.0f};
 };
 struct Path;
 class PathHeap;

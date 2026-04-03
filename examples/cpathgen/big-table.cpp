@@ -21,17 +21,21 @@ int main(int argc, char* argv[]) {
   }
 
   // Build DeltaPolicy from env vars
-  float delta_init      = env_float("CPATHGEN_DELTA",      2.5f);
-  float target_pps      = env_float("CPATHGEN_TARGET_PPS", 0.0f);
+  float delta_init      = env_float("CPATHGEN_DELTA",      0.5f);
+  float target_pps      = env_float("CPATHGEN_TARGET_PPS", 0.0f);  // 0 = auto P-controller
   float scale_up        = env_float("CPATHGEN_SCALE_UP",   1.5f);
   float scale_down      = env_float("CPATHGEN_SCALE_DOWN", 0.8f);
   float delta_min       = env_float("CPATHGEN_DELTA_MIN",  0.1f);
   float delta_max       = env_float("CPATHGEN_DELTA_MAX",  100.0f);
 
+  // Default: auto P-controller (target_pps=0). Pass CPATHGEN_TARGET_PPS=-1
+  // to disable adaptation entirely (static delta).
   std::optional<ink::DeltaPolicy> delta_policy;
-  if (target_pps > 0.0f) {
+  if (target_pps >= 0.0f) {
+    // target_pps==0 → auto mode; target_pps>0 → explicit mode
     delta_policy = ink::DeltaPolicy{target_pps, scale_up, scale_down, delta_min, delta_max};
   }
+  // target_pps < 0 → nullopt → static delta (no adaptation)
 
   ink::Ink ot, pathgen, cpathgen;
   size_t k = std::stoi(argv[1]);
