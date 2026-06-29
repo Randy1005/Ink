@@ -12,7 +12,8 @@ int main(int argc, char* argv[]) {
     std::cerr << "usage: ./a.out [k] [input] [golden] [num_threads=auto]\n";
     std::cerr << "env vars (all optional):\n"
               << "  CPATHGEN_DELTA       initial delta       (default 2.5)\n"
-              << "  CPATHGEN_TARGET_PPS  target paths/step   (default 0 = static)\n"
+              << "  CPATHGEN_NUM_VECS    number of MLQ vectors (default 20)\n"
+              << "  CPATHGEN_TARGET_PPS  target paths/step   (default -1 = static; 0 = auto)\n"
               << "  CPATHGEN_SCALE_UP    delta scale when sparse (default 1.5)\n"
               << "  CPATHGEN_SCALE_DOWN  delta scale when dense  (default 0.8)\n"
               << "  CPATHGEN_DELTA_MIN   delta lower clamp   (default 0.1)\n"
@@ -21,15 +22,16 @@ int main(int argc, char* argv[]) {
   }
 
   // Build DeltaPolicy from env vars
-  float delta_init      = env_float("CPATHGEN_DELTA",      0.5f);
-  float target_pps      = env_float("CPATHGEN_TARGET_PPS", 0.0f);  // 0 = auto P-controller
+  float delta_init      = env_float("CPATHGEN_DELTA",      2.5f);
+  float num_vecs_f      = env_float("CPATHGEN_NUM_VECS",   20.0f);
+  float target_pps      = env_float("CPATHGEN_TARGET_PPS", -1.0f);  // -1 = static; 0 = auto P-controller
   float scale_up        = env_float("CPATHGEN_SCALE_UP",   1.5f);
   float scale_down      = env_float("CPATHGEN_SCALE_DOWN", 0.8f);
   float delta_min       = env_float("CPATHGEN_DELTA_MIN",  0.1f);
   float delta_max       = env_float("CPATHGEN_DELTA_MAX",  100.0f);
 
-  // Default: auto P-controller (target_pps=0). Pass CPATHGEN_TARGET_PPS=-1
-  // to disable adaptation entirely (static delta).
+  // Default: static paper-style delta. Set CPATHGEN_TARGET_PPS=0 to enable
+  // the auto P-controller, or >0 for an explicit paths-per-step target.
   std::optional<ink::DeltaPolicy> delta_policy;
   if (target_pps >= 0.0f) {
     // target_pps==0 → auto mode; target_pps>0 → explicit mode
@@ -147,9 +149,9 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < runs; i++) {
     cpathgen.report_paths_mlq(
       delta_init,       // delta (initial; adaptive if policy set)
-      k,                // K
-      10,               // num_queues
-      cpathgen_workers, // num_workers
+      k,                                  // K
+      static_cast<size_t>(num_vecs_f),    // num_vecs
+      cpathgen_workers,                   // num_workers
       delta_policy      // optional adaptive policy
     );
     total_pfxt_time += cpathgen.pfxt_time;

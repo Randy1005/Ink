@@ -464,7 +464,8 @@ public:
     size_t K,
     size_t num_vecs,
 		std::optional<size_t> num_workers = std::nullopt,
-		std::optional<DeltaPolicy> policy = std::nullopt);
+		std::optional<DeltaPolicy> policy = std::nullopt,
+		bool recover_paths = false);
   
 
   void dump(std::ostream& os) const;
@@ -1118,11 +1119,13 @@ private:
 */
 struct Point {
 	friend class Ink;
-	Point(const Vert& v, float d);
+	Point(const Vert& v, float d, long long incoming_edge_id = -1, long long incoming_weight_sel = -1);
 	Point(Point&&) = default;
 
 	const Vert& vert;
 	float dist;
+	long long incoming_edge_id{-1};
+	long long incoming_weight_sel{-1};
 };
 
 

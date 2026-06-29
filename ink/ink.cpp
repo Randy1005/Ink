@@ -570,7 +570,8 @@ std::vector<Path> Ink::report_paths_mlq(
   size_t K,
   size_t num_vecs,
 	std::optional<size_t> num_workers,
-	std::optional<DeltaPolicy> policy) {
+	std::optional<DeltaPolicy> policy,
+	bool recover_paths) {
 
 	if (K == 0) {
   	return {};
@@ -675,7 +676,33 @@ std::vector<Path> Ink::report_paths_mlq(
 		num_workers,
 		policy);
 
-	return {};
+	if (!recover_paths) {
+		return {};
+	}
+
+	std::vector<PfxtNode*> recovered_nodes;
+	recovered_nodes.reserve(_tbb_cv_paths.size());
+	for (auto& node : _tbb_cv_paths) {
+		if (node) {
+			recovered_nodes.push_back(node.get());
+		}
+	}
+	std::sort(recovered_nodes.begin(), recovered_nodes.end(), [](const auto* a, const auto* b) {
+		return a->cost < b->cost;
+	});
+	if (recovered_nodes.size() > K) {
+		recovered_nodes.resize(K);
+	}
+
+	std::vector<Path> paths;
+	paths.reserve(recovered_nodes.size());
+	for (const auto* node : recovered_nodes) {
+		Path path(0.0f, nullptr);
+		_recover_path(path, sfxt, node, sfxt.T);
+		path.weight = path.empty() ? node->cost : path.back().dist;
+		paths.push_back(std::move(path));
+	}
+	return paths;
 }
 
 
@@ -908,11 +935,14 @@ std::vector<float> Ink::get_path_costs() {
 
 std::vector<float> Ink::get_path_costs_from_cq() {
   std::vector<float> costs;
-  while (_spurred_nodes.size_approx() > 0) {
-    std::unique_ptr<PfxtNode> node;
-    _spurred_nodes.try_dequeue(node);
-    costs.push_back(node->cost);
+  std::unique_ptr<PfxtNode> node;
+  while (_spurred_nodes.try_dequeue(node)) {
+    if (node) {
+      costs.push_back(node->cost);
+    }
+    node.reset();
   }
+  _spurred_nodes = decltype(_spurred_nodes)();
   std::sort(costs.begin(), costs.end());
   return costs;
 }
@@ -3185,11 +3215,17 @@ void Ink::_recover_path(
 	_recover_path(path, sfxt, pfxt_node->parent, pfxt_node->from);
 
 	auto u = pfxt_node->to;
+	if (u >= _vptrs.size()) {
+		return;
+	}
 	auto u_ptr = _vptrs[u];
+	if (!u_ptr) {
+		return;
+	}
 
 	// detour at the sfxt source
 	if (pfxt_node->from == sfxt.S) {
-		path.emplace_back(*u_ptr, 0.0f);
+		path.emplace_back(*u_ptr, 0.0f, -1, -1);
 	}
 	// detour at non-sfxt-source nodes (internal deviation)
 	else {
@@ -3197,8 +3233,11 @@ void Ink::_recover_path(
 		assert(pfxt_node->link);
 		
 		auto [edge, w_sel] = _decode_edge(*pfxt_node->link);
+		if (!edge || !edge->weights[w_sel]) {
+			return;
+		}
 		auto d = path.back().dist + *edge->weights[w_sel];
-		path.emplace_back(*u_ptr, d);
+		path.emplace_back(*u_ptr, d, static_cast<long long>(edge->id), static_cast<long long>(w_sel));
 	}
 	
 	while (u != v) {
@@ -3208,12 +3247,21 @@ void Ink::_recover_path(
 		
 		assert(sfxt.links[u]);
 		auto [edge, w_sel] = _decode_edge(*sfxt.links[u]);	
+		if (!edge || !edge->weights[w_sel] || !sfxt.successors[u]) {
+			break;
+		}
 		// move to the successor of u
 		u = *sfxt.successors[u];
+		if (u >= _vptrs.size()) {
+			break;
+		}
 		u_ptr = _vptrs[u];
+		if (!u_ptr) {
+			break;
+		}
 		
 		auto d = path.back().dist + *edge->weights[w_sel];
-		path.emplace_back(*u_ptr, d);
+		path.emplace_back(*u_ptr, d, static_cast<long long>(edge->id), static_cast<long long>(w_sel));
 	}
 
 }	
@@ -3527,9 +3575,11 @@ bool PfxtNodeComp::operator() (
 // ------------------------
 // Point Implementations
 // ------------------------
-Point::Point(const Vert& v, float d) :
+Point::Point(const Vert& v, float d, long long e, long long w) :
 	vert{v},
-	dist{d}
+	dist{d},
+	incoming_edge_id{e},
+	incoming_weight_sel{w}
 {
 }
 

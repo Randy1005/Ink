@@ -63,7 +63,13 @@ ink_add_example(single-iter-pathgen ${INK_EXAMPLE_DIR}/exp/single-iter-pathgen.c
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${INK_EXAMPLE_DIR}/cpathgen)
 ink_add_example(toy             ${INK_EXAMPLE_DIR}/cpathgen/toy.cpp)
 ink_add_example(gen-golden      ${INK_EXAMPLE_DIR}/cpathgen/gen-golden.cpp)
+ink_add_example(gen-golden-trace ${INK_EXAMPLE_DIR}/cpathgen/gen-golden-trace.cpp)
 ink_add_example(big-table       ${INK_EXAMPLE_DIR}/cpathgen/big-table.cpp)
+ink_add_example(exactness-table ${INK_EXAMPLE_DIR}/cpathgen/exactness-table.cpp)
+ink_add_example(exactness-batch ${INK_EXAMPLE_DIR}/cpathgen/exactness-batch.cpp)
+ink_add_example(kernel-sweep    ${INK_EXAMPLE_DIR}/cpathgen/kernel-sweep.cpp)
+ink_add_example(cpathgen-only-sweep ${INK_EXAMPLE_DIR}/cpathgen/cpathgen-only-sweep.cpp)
+ink_add_example(dump-paths      ${INK_EXAMPLE_DIR}/cpathgen/dump-paths.cpp)
 ink_add_example(convert-gpathgen-benchmark-to-edge-insertions
   ${INK_EXAMPLE_DIR}/cpathgen/convert-gpathgen-benchmark-to-edge-insertions.cpp)
 ink_add_example(speedup-acc-vs-num-threads
