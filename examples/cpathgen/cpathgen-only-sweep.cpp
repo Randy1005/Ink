@@ -44,7 +44,9 @@ int main(int argc, char* argv[]) {
   const size_t num_vecs = static_cast<size_t>(std::stoull(argv[8]));
   const std::string benchmark = basename_no_ext(input);
 
-  fs::create_directories(output.parent_path());
+  if (!output.parent_path().empty()) {
+    fs::create_directories(output.parent_path());
+  }
   const bool new_file = !fs::exists(output) || fs::file_size(output) == 0;
   std::ofstream ofs(output, std::ios::app);
   if (!ofs) {
