@@ -1753,6 +1753,9 @@ void Ink::_spur_mlq(
 	// Per-thread result buffering: avoids concurrent push_back contention on _tbb_cv_paths.
 	// combine_each flushes after each window via grow_by (one atomic reservation per thread).
 	tbb::combinable<std::vector<std::unique_ptr<PfxtNode>>> local_paths;
+	tbb::combinable<std::vector<std::vector<std::unique_ptr<PfxtNode>>>> local_task_vecs(
+		[&] { return std::vector<std::vector<std::unique_ptr<PfxtNode>>>(num_vecs); }
+	);
 	_tbb_cv_paths.reserve(K);
 
 	while (!done) {
@@ -1774,10 +1777,10 @@ void Ink::_spur_mlq(
 							assert(pfx);
 
 							// spur this node
-							_spur_tbb_task_vecs(
+							_spur_tbb_task_vecs_local(
 								pfxt,
 								*pfx.get(),
-								tbb_task_vecs);
+								local_task_vecs.local());
 
 							// transfer ownership to per-thread local buffer (flushed after each window)
 							local_paths.local().push_back(std::move(pfx));
@@ -1785,11 +1788,24 @@ void Ink::_spur_mlq(
 						});
 				});
 
+				// Flush per-thread child buffers into global task vectors in bulk.
+				local_task_vecs.combine_each([&](auto& local_tv) {
+					for (size_t qi = id; qi < num_vecs; ++qi) {
+						if (!local_tv[qi].empty()) {
+							auto it = tbb_task_vecs[qi].grow_by(local_tv[qi].size());
+							std::move(local_tv[qi].begin(), local_tv[qi].end(), it);
+							local_tv[qi].clear();
+						}
+					}
+				});
+
 				// Flush per-thread result buffers into _tbb_cv_paths after each window.
 				local_paths.combine_each([&](auto& v) {
-					auto it = _tbb_cv_paths.grow_by(v.size());
-					std::move(v.begin(), v.end(), it);
-					v.clear();
+					if (!v.empty()) {
+						auto it = _tbb_cv_paths.grow_by(v.size());
+						std::move(v.begin(), v.end(), it);
+						v.clear();
+					}
 				});
 
 	 			// update path count
@@ -2959,6 +2975,63 @@ size_t Ink::_spur_multiq(Pfxt& pfxt, PfxtNode& pfx, tf::Executor& e) {
 	}
 	return spur_cnt;
 }
+
+
+void Ink::_spur_tbb_task_vecs_local(
+	Pfxt& pfxt,
+	PfxtNode& pfx,
+	std::vector<std::vector<std::unique_ptr<PfxtNode>>>& task_vecs) {
+
+	auto u = pfx.to;
+  while (u != pfxt.sfxt.T) {
+		auto uptr = _vptrs[u];
+    for (auto edge : uptr->fanout) {
+      for (size_t w_sel = 0; w_sel < NUM_WEIGHTS; w_sel++) {
+        if (!edge->weights[w_sel]) {
+          continue;
+        }
+
+        // skip if the edge goes outside of the suffix tree
+        // which is unreachable
+        auto v = edge->to.id;
+        if (!pfxt.sfxt.dists[v]) {
+          continue;
+        }
+
+        // skip if the edge belongs to the suffix
+        // NOTE: we're detouring, so we don't want to
+        // go on the same paths explored by the suffix tree
+        if (pfxt.sfxt.links[u] &&
+            _encode_edge(*edge, w_sel) == *pfxt.sfxt.links[u]) {
+          continue;
+        }
+
+        auto w = *edge->weights[w_sel];
+        auto detour_cost = *pfxt.sfxt.dists[v] + w - *pfxt.sfxt.dists[u];
+        auto c = detour_cost + pfx.cost;
+        auto dc = detour_cost + pfx.detour_cost;
+
+				// determine vec id
+				// TODO: can be implemented more efficient since
+				// we only spur nodes that have costs larger than
+				// the current queue
+				size_t vec_id{0};
+				for (; vec_id < task_vecs.size()-1; vec_id++) {
+					if (c < bounds[vec_id]) {
+						break;
+					}
+				}
+				assert(vec_id < task_vecs.size());
+
+				// push to the corresponding task vector
+				task_vecs[vec_id].push_back(
+					std::make_unique<PfxtNode>(c, dc, u, v, edge, &pfx, _encode_edge(*edge, w_sel)));
+			}
+    }
+		u = *pfxt.sfxt.successors[u];
+	}
+}
+
 
 
 void Ink::_spur_tbb_task_vecs(

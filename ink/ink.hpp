@@ -778,6 +778,12 @@ private:
 		std::vector<tbb::concurrent_vector<std::unique_ptr<PfxtNode>>>& task_vecs
 	);
 
+	void _spur_tbb_task_vecs_local(
+		Pfxt& pfxt,
+		PfxtNode& pfx,
+		std::vector<std::vector<std::unique_ptr<PfxtNode>>>& task_vecs
+	);
+
   void _spur_multiq_relaxed(
     size_t K,
     Pfxt& pfxt,
