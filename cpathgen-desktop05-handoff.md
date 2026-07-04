@@ -2,6 +2,54 @@
 
 This machine replaces `twhuang-desktop-04`, which is down. Use `desktop-05` for the remaining revision experiments because it has the same class of hardware as `desktop-04`. Do not use `twhuang-server-01` performance numbers for paper figures; that 80-thread server showed machine-specific scaling behavior.
 
+
+## Revision Context
+
+This handoff is for the TODAES journal revision of C-PathGen. The added experiments are driven mainly by Referee 3, who asked for stronger evidence beyond the authors' prior PathGen baseline and beyond the prefix-tree kernel-only evaluation. The key reviewer concerns are:
+
+- Position C-PathGen relative to independent timing systems, especially Tatum and OpenSTA.
+- Add practical end-to-end path-query timing, including preparation, generation, filtering/sorting, and recovered path traces where applicable.
+- Strengthen exactness validation using ordered recovered path traces, not only path costs.
+- Distinguish stress-test `k=1M` results from practical smaller `k` query sizes.
+- Show CPU thread scaling and saturation points instead of only one fixed thread count.
+- Report memory usage, using peak RSS.
+- Add or update manuscript discussion/table comparing CPU C-PathGen, GPU path generation, and incremental timing work.
+
+For the remaining experiments, focus on what can be run cleanly and reproducibly on `desktop-05`:
+
+- C-PathGen/OpenTimer/PathGen can be measured now.
+- OpenSTA and Tatum require different harnesses and should not block the core C-PathGen sweeps unless those harnesses are already ready. Treat them as discussion/limited-scope comparison work if needed.
+- The GPU and incremental approaches are primarily a manuscript comparison table unless a working benchmark harness is already available.
+
+Benchmark set for the circuit experiments:
+
+```text
+des_perf   smallest useful benchmark
+vga_lcd    next small/medium benchmark
+leon2      large benchmark
+leon3mp    large benchmark
+netcard    large benchmark
+```
+
+Do not use `tv80`; it is too small for these revision figures. Do not use `aes_core`; `des_perf` is the smallest benchmark we want.
+
+Important implementation/history notes:
+
+- Path trace recovery is exposed through `report_paths_mlq(..., recover_paths=true)` and uses recovered full traces.
+- Exactness should compare complete ordered top-k trace sets where practical: missing paths, extra paths, duplicates, trace mismatches, cost mismatches, and ordering mismatches.
+- Equal-cost paths may expose tie-order limitations; report exact ordered match when it succeeds, but distinguish true correctness failures from deterministic tie policy limitations.
+- Zero-cost paths should be excluded in exactness checks where they are structural artifacts and not considered timing paths.
+- Use `report_rebuild` for golden/reference exactness where possible; avoid relying on buggy incremental `report_incsfxt` as a correctness oracle.
+- For C-PathGen paper-style settings, use `delta=2.5` and `num_vecs=20`.
+- The current optimization commit changes `_spur_mlq` expansion to use per-thread local child buffers and bulk-flush them into MLQ vectors. It is still C-PathGen; it does not switch to PathGen's `_spur_multiq`.
+
+Expected story from old-machine-class hardware:
+
+- `k=1M` is a stress test.
+- Thread curves should scale up to the hardware-thread/core limit and then plateau under oversubscription.
+- Smaller `k` sweeps should show practical latency and identify where C-PathGen starts beating sequential/OpenTimer-style baselines.
+- Use `desktop-05` numbers for figures; `twhuang-server-01` showed poor/unstable scaling and should only be mentioned as an internal debugging datapoint if at all.
+
 ## Goal
 
 Run clean old-machine-style C-PathGen experiments for the journal revision:
